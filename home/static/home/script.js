@@ -1,86 +1,43 @@
 const WHATSAPP_NUMBER = "918608865811";
 
-const products = [
-    {
-        id: 1,
-        name: "Premium Smartphone",
-        category: "Phones",
-        price: 24999,
-        badge: "BEST SELLER",
-        description: "Powerful performance with a stunning display.",
-        image: "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=700&q=85"
-    },
-    {
-        id: 2,
-        name: "Wireless Headphones",
-        category: "Audio",
-        price: 2499,
-        badge: "POPULAR",
-        description: "Enjoy clear sound and comfortable listening.",
-        image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=85"
-    },
-    {
-        id: 3,
-        name: "Premium Smart Watch",
-        category: "Wearables",
-        price: 3999,
-        badge: "TRENDING",
-        description: "A stylish smartwatch for your everyday routine.",
-        image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=700&q=85"
-    },
-    {
-        id: 4,
-        name: "Modern Laptop",
-        category: "Computers",
-        price: 54999,
-        badge: "FEATURED",
-        description: "Reliable performance for work and entertainment.",
-        image: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=700&q=85"
-    },
-    {
-        id: 5,
-        name: "Digital Camera",
-        category: "Accessories",
-        price: 18499,
-        badge: "NEW",
-        description: "Capture your favourite moments in detail.",
-        image: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=700&q=85"
-    },
-    {
-        id: 6,
-        name: "Bluetooth Speaker",
-        category: "Audio",
-        price: 1799,
-        badge: "POPULAR",
-        description: "Enjoy your music wherever you go.",
-        image: "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?auto=format&fit=crop&w=700&q=85"
-    },
-    {
-        id: 7,
-        name: "Wireless Earbuds",
-        category: "Audio",
-        price: 1999,
-        badge: "HOT DEAL",
-        description: "Compact wireless earbuds for daily listening.",
-        image: "https://images.unsplash.com/photo-1606220945770-b5b6c2c55bf1?auto=format&fit=crop&w=700&q=85"
-    },
-    {
-        id: 8,
-        name: "Tablet Device",
-        category: "Computers",
-        price: 18999,
-        badge: "FEATURED",
-        description: "A versatile tablet for work and entertainment.",
-        image: "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?auto=format&fit=crop&w=700&q=85"
-    }
-];
+const products = JSON.parse(document.getElementById("store-products").textContent);
+const storeConfig = document.getElementById("store-config").dataset;
+window.GADGETHUB = {
+    authenticated: storeConfig.authenticated === "true",
+    loginUrl: storeConfig.loginUrl,
+    accountUrl: storeConfig.accountUrl,
+    placeOrderUrl: storeConfig.placeOrderUrl
+};
 
 let selectedCategory = "All";
 let cart = [];
+try {
+    const savedCart = JSON.parse(sessionStorage.getItem("gadgethub-cart") || "[]");
+    cart = savedCart
+        .map(savedItem => {
+            const product = products.find(item => item.id === savedItem.id);
+            return product && Number.isInteger(savedItem.quantity) && savedItem.quantity > 0
+                ? { ...product, quantity: savedItem.quantity }
+                : null;
+        })
+        .filter(Boolean);
+} catch (error) {
+    sessionStorage.removeItem("gadgethub-cart");
+}
 let liveLocation = null;
 
 function formatPrice(amount) {
     return "₹" + amount.toLocaleString("en-IN");
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, character => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    })[character]);
 }
 
 function getWhatsAppLink(message) {
@@ -97,58 +54,89 @@ function renderProducts() {
             selectedCategory === "All" || product.category === selectedCategory;
         const matchesSearch =
             product.name.toLowerCase().includes(searchText) ||
-            product.category.toLowerCase().includes(searchText);
+            product.category.toLowerCase().includes(searchText) ||
+            product.description.toLowerCase().includes(searchText);
 
         return matchesCategory && matchesSearch;
     });
 
+    const resultsLabel = document.getElementById("results-label");
+    resultsLabel.textContent =
+        `${filteredProducts.length} ${filteredProducts.length === 1 ? "thoughtful pick" : "thoughtful picks"}`;
+
     if (filteredProducts.length === 0) {
-        grid.innerHTML = '<p class="no-products">No gadgets found. Try another search.</p>';
+        grid.innerHTML = `
+            <div class="no-products">
+                <span class="empty-symbol" aria-hidden="true">⌕</span>
+                <h3>Nothing in this corner just yet.</h3>
+                <p>Try a different search or browse everything in the collection.</p>
+                <button class="text-link" type="button" onclick="resetProductFilters()">Show everything <span aria-hidden="true">→</span></button>
+            </div>
+        `;
         return;
     }
 
     grid.innerHTML = filteredProducts.map(product => `
         <article class="product-card">
             <div class="product-image-wrap">
-                <span class="product-badge">${product.badge}</span>
+                ${product.badge ? `<span class="product-badge">${escapeHtml(product.badge)}</span>` : ""}
                 <img
                     class="product-image"
-                    src="${product.image}"
-                    alt="${product.name}"
+                    src="${escapeHtml(product.image)}"
+                    alt="${escapeHtml(product.name)}"
                     loading="lazy">
+                <button class="quick-add" type="button" aria-label="Add ${escapeHtml(product.name)} to your bag" onclick="addToCart(${product.id})">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
             </div>
             <div class="product-info">
-                <span class="product-category">${product.category}</span>
-                <h3>${product.name}</h3>
-                <p class="product-description">${product.description}</p>
-                <div class="product-price">${formatPrice(product.price)}</div>
+                <div class="product-overline">
+                    <span class="product-category">${escapeHtml(product.category)}</span>
+                    <span class="product-mark" aria-hidden="true">G/H PICK</span>
+                </div>
+                <h3>${escapeHtml(product.name)}</h3>
+                <p class="product-description">${escapeHtml(product.description)}</p>
+                <div class="product-card-bottom">
+                    <div class="product-price">${formatPrice(product.price)}</div>
+                    <button class="whatsapp-order" type="button" onclick="orderProduct(${product.id})">
+                        Quick order <span aria-hidden="true">↗</span>
+                    </button>
+                </div>
                 <div class="product-actions">
-                    <button class="add-cart" type="button" onclick="addToCart(${product.id})">
-                        Add to Cart
-                    </button>
-                    <button
-                        class="whatsapp-order"
-                        type="button"
-                        onclick="orderProduct(${product.id})">
-                        Order
-                    </button>
+                    <button class="add-cart" type="button" onclick="addToCart(${product.id})">Add to bag</button>
                 </div>
             </div>
         </article>
     `).join("");
 }
 
+function resetProductFilters() {
+    selectedCategory = "All";
+    document.getElementById("search-input").value = "";
+    document.querySelectorAll(".filter-btn").forEach(button => {
+        const isActive = button.textContent.trim() === "Everything";
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-pressed", String(isActive));
+    });
+    renderProducts();
+}
+
 function filterProducts(category, button) {
     selectedCategory = category;
 
     document.querySelectorAll(".filter-btn").forEach(filterButton => {
-        filterButton.classList.toggle("active", filterButton === button);
+        const isActive = filterButton === button;
+        filterButton.classList.toggle("active", isActive);
+        filterButton.setAttribute("aria-pressed", String(isActive));
     });
 
     renderProducts();
 }
 
 function renderCart() {
+    sessionStorage.setItem("gadgethub-cart", JSON.stringify(
+        cart.map(item => ({ id: item.id, quantity: item.quantity }))
+    ));
     const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
     const cartTotal = cart.reduce(
         (total, item) => total + item.price * item.quantity,
@@ -156,20 +144,30 @@ function renderCart() {
     );
 
     document.getElementById("cart-count").textContent = cartCount;
+    document.getElementById("cart-title-count").textContent =
+        cartCount ? `(${cartCount})` : "";
     document.getElementById("cart-total").textContent =
-        `Total: ${formatPrice(cartTotal)}`;
+        `Subtotal: ${formatPrice(cartTotal)}`;
 
     const cartItems = document.getElementById("cart-items");
     if (cart.length === 0) {
-        cartItems.innerHTML = "<p>Your cart is empty.</p>";
+        cartItems.innerHTML = `
+            <div class="empty-cart">
+                <span class="empty-cart-icon" aria-hidden="true">＋</span>
+                <h3>Your bag is taking a breather.</h3>
+                <p>Find something useful, delightful, or a bit of both.</p>
+                <button class="text-link" type="button" onclick="closeCart(); document.getElementById('products').scrollIntoView({ behavior: 'smooth' });">Explore the collection <span aria-hidden="true">→</span></button>
+            </div>
+        `;
         return;
     }
 
     cartItems.innerHTML = cart.map(item => `
         <div class="cart-item">
+            <img class="cart-item-image" src="${escapeHtml(item.image)}" alt="">
             <div>
-                <strong>${item.name}</strong>
-                <p>${formatPrice(item.price)} each</p>
+                <strong>${escapeHtml(item.name)}</strong>
+                <p>${escapeHtml(item.category)} · ${formatPrice(item.price)} each</p>
                 <div class="quantity-controls">
                     <button type="button" aria-label="Decrease quantity"
                         onclick="changeQuantity(${item.id}, -1)">−</button>
@@ -191,6 +189,10 @@ function addToCart(productId) {
 
     const cartItem = cart.find(item => item.id === productId);
     if (cartItem) {
+        if (cartItem.quantity >= 99) {
+            alert("You can add up to 99 of each product.");
+            return;
+        }
         cartItem.quantity += 1;
     } else {
         cart.push({ ...product, quantity: 1 });
@@ -221,6 +223,9 @@ function changeQuantity(productId, amount) {
         throw new Error(`Product ${productId} is not in the cart.`);
     }
 
+    if (amount > 0 && item.quantity >= 99) {
+        return;
+    }
     item.quantity += amount;
     if (item.quantity <= 0) {
         cart = cart.filter(cartItem => cartItem.id !== productId);
@@ -254,7 +259,7 @@ function renderCheckoutSummary() {
     document.getElementById("checkout-order-items").innerHTML = cart.map(item => `
         <div class="checkout-order-item">
             <div>
-                <strong>${item.name}</strong>
+                <strong>${escapeHtml(item.name)}</strong>
                 <p>${formatPrice(item.price)} × ${item.quantity}</p>
             </div>
             <strong>${formatPrice(item.price * item.quantity)}</strong>
@@ -315,7 +320,7 @@ function requestLiveLocation() {
             button.disabled = false;
             button.textContent = "Location captured ✓";
             status.textContent =
-                `Location captured (about ±${Math.round(liveLocation.accuracy)} m). It will be added to your WhatsApp order.`;
+                `Location captured (about ±${Math.round(liveLocation.accuracy)} m). It will be saved with your order.`;
         },
         error => {
             liveLocation = null;
@@ -346,64 +351,109 @@ function submitCheckout(event) {
         return;
     }
 
-    if (!/^\d{10,15}$/.test(WHATSAPP_NUMBER)) {
-        alert("The WhatsApp number in script.js is invalid.");
-        return;
-    }
-
     const name = document.getElementById("customer-name").value.trim();
     const email = document.getElementById("customer-email").value.trim();
     const mobile = document.getElementById("customer-mobile").value.trim();
     const address = document.getElementById("customer-address").value.trim();
+    const paymentMethod = document.getElementById("payment-method").value;
 
     if (!name || !email || !mobile || !address) {
         alert("Please complete your name, email, mobile number, and delivery address.");
         return;
     }
 
-    const orderLines = cart.map((item, index) => [
-        `📦 *Product ${index + 1}: ${item.name}*`,
-        `🏷️ Category: ${item.category}`,
-        `💰 Unit price: ${formatPrice(item.price)}`,
-        `🔢 Quantity: ${item.quantity}`,
-        `💵 Subtotal: ${formatPrice(item.price * item.quantity)}`
-    ].join("\n"));
+    if (!window.GADGETHUB.authenticated) {
+        sessionStorage.setItem("gadgethub-checkout", JSON.stringify({
+            name, email, mobile, address, paymentMethod
+        }));
+        window.location.href = window.GADGETHUB.loginUrl;
+        return;
+    }
 
-    const message = [
-        "🛍️ *NEW ORDER — GADGETHUB* 🛍️",
-        "",
-        "👤 *CUSTOMER DETAILS*",
-        "━━━━━━━━━━━━━━━━━━",
-        `🙍 Name: ${name}`,
-        `📧 Email: ${email}`,
-        `📱 Mobile number: ${mobile}`,
-        `🏠 Delivery address: ${address}`,
-        liveLocation
-            ? `📍 Live location: https://maps.google.com/?q=${liveLocation.latitude},${liveLocation.longitude}\n🎯 GPS accuracy: about ±${Math.round(liveLocation.accuracy)} metres`
-            : "📍 Live location: Not shared (delivery address provided)",
-        "",
-        "🛒 *ORDER DETAILS*",
-        "━━━━━━━━━━━━━━━━━━",
-        ...orderLines.flatMap((line, index) =>
-            index < orderLines.length - 1 ? [line, ""] : [line]
-        ),
-        "",
-        "━━━━━━━━━━━━━━━━━━",
-        `🧾 *ORDER TOTAL: ${formatPrice(getCartTotal())}*`,
-        "",
-        "🙏 Thank you for choosing GadgetHub!",
-        "Please confirm availability, delivery charges, and payment details."
-    ].join("\n");
-
-    window.open(getWhatsAppLink(message), "_blank", "noopener,noreferrer");
-    document.getElementById("order-status").textContent =
-        "WhatsApp opened with your order details. Review the message and tap Send to submit your order.";
+    const submitButton = document.querySelector("#checkout-form button[type='submit']");
+    const status = document.getElementById("order-status");
+    submitButton.disabled = true;
+    status.textContent = "Saving your order...";
+    fetch(window.GADGETHUB.placeOrderUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": document.querySelector("#checkout-form [name=csrfmiddlewaretoken]").value
+        },
+        body: JSON.stringify({
+            name,
+            email,
+            mobile,
+            address,
+            payment_method: paymentMethod,
+            cart: cart.map(item => ({ id: item.id, quantity: item.quantity })),
+            location: liveLocation
+        })
+    }).then(async response => {
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || "Unable to save the order.");
+        }
+        const orderLines = cart.map(item =>
+            `${item.name} × ${item.quantity} — ${formatPrice(item.price * item.quantity)}`
+        );
+        const message = [
+            `GadgetHub order #${data.order_id}`,
+            `Name: ${name}`,
+            `Email: ${email}`,
+            `Mobile: ${mobile}`,
+            `Delivery address: ${address}`,
+            `Payment: ${document.getElementById("payment-method").selectedOptions[0].textContent}`,
+            liveLocation
+                ? `Location: https://maps.google.com/?q=${liveLocation.latitude},${liveLocation.longitude}`
+                : "",
+            "Items:",
+            ...orderLines,
+            `Total: ${formatPrice(Number(data.total))}`
+        ].filter(Boolean).join("\n");
+        sessionStorage.removeItem("gadgethub-checkout");
+        sessionStorage.removeItem("gadgethub-cart");
+        cart = [];
+        renderCart();
+        status.textContent =
+            `Order #${data.order_id} was saved to your account. Payment is not processed online; the store will confirm payment and delivery details. `;
+        const accountLink = document.createElement("a");
+        accountLink.href = window.GADGETHUB.accountUrl;
+        accountLink.textContent = "View your orders";
+        status.append(accountLink);
+        status.append(document.createTextNode(" · "));
+        const whatsappLink = document.createElement("a");
+        whatsappLink.href = getWhatsAppLink(message);
+        whatsappLink.target = "_blank";
+        whatsappLink.rel = "noopener noreferrer";
+        whatsappLink.textContent = "Notify the store on WhatsApp";
+        status.append(whatsappLink);
+    }).catch(error => {
+        status.textContent = error.message || "Unable to save the order. Please try again.";
+    }).finally(() => {
+        submitButton.disabled = false;
+    });
 }
 
 document.getElementById("location-button").addEventListener("click", requestLiveLocation);
 document.getElementById("checkout-form").addEventListener("submit", submitCheckout);
 document.getElementById("contact-whatsapp").href =
     getWhatsAppLink("Hello GadgetHub! I need help with your products.");
+
+try {
+    const checkoutDraft = JSON.parse(sessionStorage.getItem("gadgethub-checkout") || "null");
+    if (checkoutDraft) {
+        document.getElementById("customer-name").value = checkoutDraft.name || "";
+        document.getElementById("customer-email").value = checkoutDraft.email || "";
+        document.getElementById("customer-mobile").value = checkoutDraft.mobile || "";
+        document.getElementById("customer-address").value = checkoutDraft.address || "";
+        document.getElementById("payment-method").value = checkoutDraft.paymentMethod || "cash_on_delivery";
+        sessionStorage.removeItem("gadgethub-checkout");
+    }
+} catch (error) {
+    sessionStorage.removeItem("gadgethub-checkout");
+}
 
 document.addEventListener("keydown", event => {
     if (event.key === "Escape") {

@@ -1,0 +1,226 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f8f6">
+    <title>My account | GadgetHub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261117-7">
+</head>
+<body class="account-page customer-dashboard">
+    <header class="dashboard-header">
+        <a href="{% url 'home' %}" class="logo">
+            <span class="logo-mark">g</span>
+            <span class="logo-word">gadget<span>hub</span></span>
+        </a>
+        <nav class="dashboard-nav" aria-label="Account navigation">
+            <a href="{% url 'home' %}">Continue shopping</a>
+            {% if request.user.is_staff %}<a href="{% url 'admin:index' %}">Admin dashboard</a>{% endif %}
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit">Log out</button>
+            </form>
+        </nav>
+    </header>
+
+    <main class="dashboard-shell">
+        <section class="dashboard-welcome">
+            <div>
+                <p class="eyebrow">YOUR LITTLE CORNER OF GADGETHUB</p>
+                <h1>Hey, {{ request.user.first_name|default:request.user.username }}.</h1>
+                <p>Keep your details up to date and your orders close by.</p>
+            </div>
+            <div class="member-chip"><span class="member-chip-dot"></span> Signed in as <strong>{{ request.user.username }}</strong></div>
+        </section>
+
+        {% for message in messages %}
+            <p class="account-message {{ message.tags }}">{{ message }}</p>
+        {% endfor %}
+
+        <div class="dashboard-grid">
+            <section class="dashboard-panel profile-panel">
+                <div class="panel-heading">
+                    <span class="panel-icon" aria-hidden="true">01</span>
+                    <div>
+                        <h2>Personal details</h2>
+                        {% if request.user.is_staff %}
+                            <p>Manage your admin login and employee contact details.</p>
+                        {% else %}
+                            <p>The best way to reach you and get your order to you.</p>
+                        {% endif %}
+                    </div>
+                </div>
+                <form method="post" class="profile-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="profile">
+                    {{ profile_form.as_p }}
+                    <button type="submit" class="button button-primary">Save my details <span aria-hidden="true">→</span></button>
+                </form>
+                <button
+                    type="button"
+                    class="password-panel-toggle"
+                    data-password-panel-toggle
+                    data-open-label="Change password"
+                    data-close-label="Close password form"
+                    aria-controls="account-security-panel"
+                    aria-expanded="{{ show_password_form|yesno:'true,false' }}"
+                >
+                    {% if show_password_form %}Close password form{% else %}Change password{% endif %}
+                </button>
+                <div
+                    id="account-security-panel"
+                    {% if not show_password_form %}hidden{% endif %}
+                >
+                    <div class="panel-heading">
+                        <span class="panel-icon panel-icon-blue" aria-hidden="true">02</span>
+                        <div><h2>Account security</h2><p>Change your password whenever you need.</p></div>
+                    </div>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_type" value="password">
+                        {{ password_form.as_p }}
+                        <button type="submit" class="button button-dark">Update password <span aria-hidden="true">→</span></button>
+                    </form>
+                    <p class="security-note"><span aria-hidden="true">↗</span> Choose a unique password you don’t use anywhere else.</p>
+                </div>
+            </section>
+        </div>
+
+        <section
+            class="orders-panel"
+            data-order-tracking
+            data-tracking-url="{% url 'order_tracking' %}"
+        >
+            <div class="orders-panel-heading">
+                <div>
+                    <p class="eyebrow">YOUR GADGETHUB HISTORY</p>
+                    <h2>Your orders <span class="order-count">{{ orders|length }}</span></h2>
+                </div>
+                <a href="{% url 'home' %}#products" class="text-link">Find something new <span aria-hidden="true">↗</span></a>
+            </div>
+
+            {% for order in orders %}
+                <article class="account-order" data-order-id="{{ order.pk }}">
+                    <div class="account-order-top">
+                        <div>
+                            <span class="order-reference">ORDER #{{ order.pk }}</span>
+                            <h3>{{ order.created_at|date:"M j, Y" }}</h3>
+                        </div>
+                        <span class="order-status-pill status-{{ order.status }}" aria-live="polite">{{ order.get_status_display }}</span>
+                    </div>
+                    <div class="account-order-lines">
+                        {% for item in order.items.all %}
+                            <div class="account-order-item">
+                                <span><b>{{ item.quantity }} ×</b> {{ item.product_name }}</span>
+                                <strong>₹{{ item.unit_price|floatformat:2 }}</strong>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <div class="account-order-bottom">
+                        <span>{{ order.get_payment_method_display }} · {{ order.get_payment_status_display }}</span>
+                        <strong>Total <b>₹{{ order.total|floatformat:2 }}</b></strong>
+                    </div>
+                    {% if order.address %}
+                        <p class="account-delivery-details">Delivering to {{ order.address }}</p>
+                    {% endif %}
+                    <section class="order-tracking" aria-label="Order tracking">
+                        <div class="tracking-heading">
+                            <strong>Track your order</strong>
+                            <span><i aria-hidden="true"></i> Updates automatically</span>
+                        </div>
+                        {% with latest_event=order.latest_tracking_event %}
+                            <p class="tracking-latest" data-tracking-latest aria-live="polite">
+                                {% if latest_event %}{{ latest_event.description }}{% else %}Current status: {{ order.get_status_display }}. New tracking updates will appear here.{% endif %}
+                            </p>
+                        {% endwith %}
+                        <ol
+                            class="tracking-progress"
+                            data-order-progress
+                            {% if order.status == "cancelled" %}hidden{% endif %}
+                        >
+                            {% for step in order.tracking_steps %}
+                                <li
+                                    data-tracking-step="{{ step.status }}"
+                                    class="{% if step.complete %}is-complete{% endif %}{% if step.current %} is-current{% endif %}"
+                                >
+                                    <span class="tracking-step-marker" aria-hidden="true"></span>
+                                    <span>{{ step.label }}</span>
+                                </li>
+                            {% endfor %}
+                        </ol>
+                        <p
+                            class="tracking-cancelled"
+                            data-order-cancelled
+                            {% if order.status != "cancelled" %}hidden{% endif %}
+                        >
+                            This order has been cancelled.
+                        </p>
+                        <details class="tracking-history">
+                            <summary data-tracking-summary>
+                                Tracking updates ({{ order.tracking_events.all|length }})
+                            </summary>
+                            <ol data-order-events>
+                                {% for event in order.tracking_events.all %}
+                                    <li>
+                                        <span class="tracking-event-marker" aria-hidden="true"></span>
+                                        <div>
+                                            <strong>{{ event.get_status_display }}</strong>
+                                            <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"M j, Y, g:i A" }}</time>
+                                            <p>{{ event.description }}</p>
+                                        </div>
+                                    </li>
+                                {% empty %}
+                                    <li class="tracking-empty">Tracking details will appear here as your order progresses.</li>
+                                {% endfor %}
+                            </ol>
+                        </details>
+                        <div
+                            class="order-cancel-actions"
+                            data-order-cancel-actions
+                            {% if not order.can_be_cancelled %}hidden{% endif %}
+                        >
+                            <form
+                                method="post"
+                                action="{% url 'cancel_order' order.pk %}"
+                                data-cancel-order
+                                data-confirm-message="Cancel order #{{ order.pk }}?"
+                            >
+                                {% csrf_token %}
+                                <button type="submit" class="button button-cancel-order">Cancel order</button>
+                                <span>Available for 48 hours after ordering, until the order ships.</span>
+                            </form>
+                        </div>
+                        <p
+                            class="cancellation-note"
+                            data-cancellation-expired
+                            {% if order.status != "pending" and order.status != "confirmed" or order.can_be_cancelled %}hidden{% endif %}
+                        >
+                            The 48-hour cancellation window has ended.
+                        </p>
+                        <p
+                            class="cancellation-note"
+                            data-cancellation-shipped
+                            {% if order.status != "shipped" and order.status != "out_for_delivery" %}hidden{% endif %}
+                        >
+                            This order can no longer be cancelled because it has shipped.
+                        </p>
+                    </section>
+                </article>
+            {% empty %}
+                <div class="empty-orders">
+                    <span class="empty-orders-icon" aria-hidden="true">✳</span>
+                    <h3>Your order story starts here.</h3>
+                    <p>When you find something you love, your order details and updates will show up here.</p>
+                    <a href="{% url 'home' %}#products" class="button button-primary">Explore the collection <span aria-hidden="true">→</span></a>
+                </div>
+            {% endfor %}
+        </section>
+    </main>
+    <script src="{% static 'home/auth.js' %}?v=20261117-2"></script>
+    <script src="{% static 'home/tracking.js' %}?v=20261117-2"></script>
+</body>
+</html>

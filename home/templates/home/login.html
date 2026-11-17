@@ -1,0 +1,53 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#17212b">
+    <title>Sign in | GadgetHub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261117-3">
+</head>
+<body class="account-page auth-page">
+    <div class="auth-shell">
+        <aside class="auth-aside">
+            <a href="{% url 'home' %}" class="logo auth-logo">
+                <span class="logo-mark">g</span>
+                <span class="logo-word">gadget<span>hub</span></span>
+            </a>
+            <div class="auth-aside-copy">
+                <p class="eyebrow">WELCOME BACK</p>
+                <h1>Your good tech<br>is just a sign-in <span>away.</span></h1>
+                <p>Pick up where you left off. Your orders and details are right here.</p>
+            </div>
+            <div class="auth-aside-note"><span>✳</span> Thoughtful tech for everyday life.</div>
+            <div class="auth-orbit auth-orbit-one"></div>
+            <div class="auth-orbit auth-orbit-two"></div>
+        </aside>
+        <main class="account-card auth-card">
+            <a href="{% url 'home' %}" class="auth-back-link">← Back to GadgetHub</a>
+            <h2>Sign in to your account</h2>
+            <p>Good to have you back. Let’s get you connected.</p>
+            <form method="post">
+                {% csrf_token %}
+                {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+                <label for="{{ form.username.id_for_label }}">Username</label>
+                {{ form.username }}
+                {{ form.username.errors }}
+                <label for="{{ form.password.id_for_label }}">Password</label>
+                {{ form.password }}
+                {{ form.password.errors }}
+                <p class="auth-forgot-link"><a href="{% url 'password_reset' %}">Forgot your password?</a></p>
+                <input type="hidden" name="next" value="{{ next }}">
+                <button type="submit" class="checkout-button">Sign in <span aria-hidden="true">→</span></button>
+            </form>
+            <p class="account-switch">New around here? <a href="{% url 'register' %}">Create an account</a></p>
+            <p class="auth-admin-note">Admin? Use your admin account here too. You’ll go straight to the admin dashboard.</p>
+        </main>
+    </div>
+    <script src="{% static 'home/auth.js' %}?v=20261117"></script>
+</body>
+</html>

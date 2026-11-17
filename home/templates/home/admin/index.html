@@ -1,0 +1,44 @@
+{% extends "admin/index.html" %}
+
+{% block content %}
+<div class="module">
+    <table>
+        <caption>Store overview</caption>
+        <tbody>
+            <tr>
+                <th scope="row"><a href="{% url 'admin:auth_user_changelist' %}">User accounts</a></th>
+                <td>{{ store_summary.user_count }}</td>
+            </tr>
+            <tr>
+                <th scope="row"><a href="{% url 'admin:home_order_changelist' %}">Orders</a></th>
+                <td>{{ store_summary.order_count }}</td>
+            </tr>
+            <tr>
+                <th scope="row"><a href="{% url 'admin:home_order_changelist' %}?status=pending">Pending orders</a></th>
+                <td>{{ store_summary.pending_order_count }}</td>
+            </tr>
+            <tr>
+                <th scope="row"><a href="{% url 'admin:home_product_changelist' %}">Products</a></th>
+                <td>{{ store_summary.product_count }} total / {{ store_summary.active_product_count }} active</td>
+            </tr>
+            <tr>
+                <th scope="row"><a href="{% url 'admin:home_category_changelist' %}">Categories</a></th>
+                <td>{{ store_summary.category_count }}</td>
+            </tr>
+            <tr>
+                <th scope="row">Paid order total</th>
+                <td>₹{{ store_summary.paid_total|floatformat:2 }}</td>
+            </tr>
+            <tr>
+                <th scope="row">Outstanding order total</th>
+                <td>₹{{ store_summary.outstanding_total|floatformat:2 }}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+<div class="module">
+    <h2>Your account</h2>
+    <p><a href="{% url 'account' %}">Update your admin profile and employee details</a></p>
+</div>
+{{ block.super }}
+{% endblock %}
