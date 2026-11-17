@@ -9,22 +9,24 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261117-7">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261117-9">
 </head>
 <body class="account-page customer-dashboard">
     <header class="dashboard-header">
-        <a href="{% url 'home' %}" class="logo">
-            <span class="logo-mark">g</span>
-            <span class="logo-word">gadget<span>hub</span></span>
-        </a>
-        <nav class="dashboard-nav" aria-label="Account navigation">
-            <a href="{% url 'home' %}">Continue shopping</a>
-            {% if request.user.is_staff %}<a href="{% url 'admin:index' %}">Admin dashboard</a>{% endif %}
-            <form method="post" action="{% url 'logout' %}">
-                {% csrf_token %}
-                <button type="submit">Log out</button>
-            </form>
-        </nav>
+        <div class="dashboard-header-inner">
+            <a href="{% url 'home' %}" class="logo">
+                <span class="logo-mark">g</span>
+                <span class="logo-word">gadget<span>hub</span></span>
+            </a>
+            <nav class="dashboard-nav" aria-label="Account navigation">
+                <a href="{% url 'home' %}">Continue shopping</a>
+                {% if request.user.is_staff %}<a href="{% url 'admin:index' %}">Admin dashboard</a>{% endif %}
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit">Log out</button>
+                </form>
+            </nav>
+        </div>
     </header>
 
     <main class="dashboard-shell">
