@@ -1,0 +1,65 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    › Order updates
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>Order updates</h1>
+    <p>Move each order forward one delivery step. Customers’ tracking pages refresh automatically.</p>
+    <div class="module">
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Order</th>
+                    <th scope="col">Customer</th>
+                    <th scope="col">Items</th>
+                    <th scope="col">Total</th>
+                    <th scope="col">Current status</th>
+                    <th scope="col">Next update</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                    <tr>
+                        <th scope="row">
+                            <a href="{% url 'admin:home_order_change' order.pk %}">#{{ order.pk }}</a>
+                        </th>
+                        <td>{{ order.full_name }}</td>
+                        <td>
+                            {% for item in order.items.all %}
+                                <div>{{ item.quantity }} × {{ item.product_name }}</div>
+                            {% empty %}
+                                —
+                            {% endfor %}
+                        </td>
+                        <td>₹{{ order.total|floatformat:2 }}</td>
+                        <td>{{ order.get_status_display }}</td>
+                        <td>
+                            {% if order.next_status %}
+                                <form method="post" action="{% url 'admin:order_advance' order.pk %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="expected_status" value="{{ order.status }}">
+                                    <button type="submit" class="button">
+                                        Mark as {{ order.next_status_label }}
+                                    </button>
+                                </form>
+                            {% else %}
+                                No further updates
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6">There are no orders to update.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

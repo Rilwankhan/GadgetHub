@@ -1,0 +1,51 @@
+<div class="announcement-bar">
+    <span class="announcement-dot"></span>
+    <span>Good tech, made easy.</span>
+    <span class="announcement-divider">·</span>
+    <span>Questions? <a href="{% url 'home' %}#contact">We’re here to help</a></span>
+</div>
+
+<header class="navbar site-header" id="home">
+    <a href="{% url 'home' %}#home" class="logo" aria-label="GadgetHub home">
+        <span class="logo-mark">g</span>
+        <span class="logo-word">gadget<span>hub</span></span>
+    </a>
+
+    <nav class="nav-links" aria-label="Main navigation">
+        <a href="{% url 'home' %}#products">Shop</a>
+        <a href="{% url 'home' %}#about">Our story</a>
+        <a href="{% url 'home' %}#contact">Support</a>
+        {% if not user.is_authenticated %}
+            <a class="mobile-register-link" href="{% url 'register' %}">Join us</a>
+        {% endif %}
+    </nav>
+
+    <div class="header-actions">
+        <div class="account-links">
+            {% if user.is_authenticated %}
+                <a href="{% url 'account' %}">My account</a>
+                {% if user.is_staff %}
+                    <a href="{% url 'admin:index' %}">Admin</a>
+                {% endif %}
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit">Log out</button>
+                </form>
+            {% else %}
+                <a href="{% url 'login' %}">Log in</a>
+                <a class="account-create" href="{% url 'register' %}">Create account</a>
+            {% endif %}
+        </div>
+        {% if show_cart %}
+            <button class="cart-button" type="button" onclick="openCart()" aria-label="Open shopping bag">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 12H4L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>
+                <span>Bag</span>
+                <span class="cart-count" id="cart-count">0</span>
+            </button>
+        {% else %}
+            <a class="cart-button product-detail-shop-link" href="{% url 'home' %}#products">
+                <span>Shop all</span><span aria-hidden="true">↗</span>
+            </a>
+        {% endif %}
+    </div>
+</header>

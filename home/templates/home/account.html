@@ -5,13 +5,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f7f8f6">
-    <title>My account | GadgetHub</title>
+    <title>{% if is_admin %}Admin account{% else %}My account{% endif %} | GadgetHub</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261117-9">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261118-4">
 </head>
-<body class="account-page customer-dashboard">
+<body class="account-page {% if is_admin %}admin-dashboard{% else %}customer-dashboard{% endif %}">
     <header class="dashboard-header">
         <div class="dashboard-header-inner">
             <a href="{% url 'home' %}" class="logo">
@@ -32,11 +32,16 @@
     <main class="dashboard-shell">
         <section class="dashboard-welcome">
             <div>
-                <p class="eyebrow">YOUR LITTLE CORNER OF GADGETHUB</p>
-                <h1>Hey, {{ request.user.first_name|default:request.user.username }}.</h1>
-                <p>Keep your details up to date and your orders close by.</p>
+                {% if is_admin %}
+                    <p class="eyebrow">YOUR GADGETHUB WORKSPACE</p>
+                    <h1>Admin account.</h1>
+                    <p>Manage your profile and jump into the store tools you use every day.</p>
+                {% else %}
+                    <p class="eyebrow">YOUR LITTLE CORNER OF GADGETHUB</p>
+                    <h1>Welcome back.</h1>
+                    <p>Manage your account and keep your orders close by.</p>
+                {% endif %}
             </div>
-            <div class="member-chip"><span class="member-chip-dot"></span> Signed in as <strong>{{ request.user.username }}</strong></div>
         </section>
 
         {% for message in messages %}
@@ -45,23 +50,66 @@
 
         <div class="dashboard-grid">
             <section class="dashboard-panel profile-panel">
-                <div class="panel-heading">
-                    <span class="panel-icon" aria-hidden="true">01</span>
-                    <div>
-                        <h2>Personal details</h2>
-                        {% if request.user.is_staff %}
-                            <p>Manage your admin login and employee contact details.</p>
-                        {% else %}
-                            <p>The best way to reach you and get your order to you.</p>
-                        {% endif %}
+                {% if is_admin %}
+                    <div class="panel-heading admin-profile-heading">
+                        <span class="panel-icon panel-icon-blue" aria-hidden="true">GH</span>
+                        <div><h2>Admin Profile</h2><p>Your staff account and contact details.</p></div>
+                    </div>
+                {% endif %}
+                <button
+                    type="button"
+                    class="personal-details-toggle"
+                    data-personal-details-toggle
+                    aria-controls="personal-details-panel"
+                    aria-expanded="{{ show_profile_details|yesno:'true,false' }}"
+                >
+                    <span class="personal-details-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+                    </span>
+                    <span>Personal Details</span>
+                    <span class="personal-details-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div
+                    id="personal-details-panel"
+                    class="personal-details-panel"
+                    {% if not show_profile_details %}hidden{% endif %}
+                >
+                    <div data-profile-summary {% if show_profile_edit %}hidden{% endif %}>
+                        <dl class="personal-details-list">
+                            {% if request.user.is_staff %}
+                                <div><dt>First name</dt><dd>{{ request.user.first_name|default:"Not provided" }}</dd></div>
+                                <div><dt>Last name</dt><dd>{{ request.user.last_name|default:"Not provided" }}</dd></div>
+                                <div><dt>Username</dt><dd>{{ request.user.username }}</dd></div>
+                                <div><dt>Email</dt><dd>{{ request.user.email|default:"Not provided" }}</dd></div>
+                                <div><dt>Employee ID</dt><dd>{{ profile.employee_id|default:"Not provided" }}</dd></div>
+                                <div><dt>Mobile number</dt><dd>{{ profile.mobile|default:"Not provided" }}</dd></div>
+                                <div><dt>Address</dt><dd>{{ profile.address|default:"Not provided" }}</dd></div>
+                                <div><dt>Landmark</dt><dd>{{ profile.landmark|default:"Not provided" }}</dd></div>
+                            {% else %}
+                                <div><dt>First name</dt><dd>{{ request.user.first_name|default:"Not provided" }}</dd></div>
+                                <div><dt>Last name</dt><dd>{{ request.user.last_name|default:"Not provided" }}</dd></div>
+                                <div><dt>Email</dt><dd>{{ request.user.email|default:"Not provided" }}</dd></div>
+                                <div><dt>Mobile number</dt><dd>{{ profile.mobile|default:"Not provided" }}</dd></div>
+                                <div><dt>Address</dt><dd>{{ profile.address|default:"Not provided" }}</dd></div>
+                                <div><dt>Landmark</dt><dd>{{ profile.landmark|default:"Not provided" }}</dd></div>
+                            {% endif %}
+                        </dl>
+                        <div class="profile-detail-actions">
+                            <button type="button" class="button button-primary" data-profile-edit>Edit</button>
+                        </div>
+                    </div>
+                    <div data-profile-editor {% if not show_profile_edit %}hidden{% endif %}>
+                        <form method="post" class="profile-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_type" value="profile">
+                            {{ profile_form.as_p }}
+                            <div class="profile-detail-actions">
+                                <button type="button" class="button button-secondary" data-profile-cancel>Cancel</button>
+                                <button type="submit" class="button button-primary">Save Changes</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
-                <form method="post" class="profile-form">
-                    {% csrf_token %}
-                    <input type="hidden" name="form_type" value="profile">
-                    {{ profile_form.as_p }}
-                    <button type="submit" class="button button-primary">Save my details <span aria-hidden="true">→</span></button>
-                </form>
                 <button
                     type="button"
                     class="password-panel-toggle"
@@ -92,6 +140,35 @@
             </section>
         </div>
 
+        {% if is_admin %}
+            <section class="admin-management-panel" aria-labelledby="admin-management-title">
+                <div class="admin-management-heading">
+                    <div>
+                        <p class="eyebrow">STORE OPERATIONS</p>
+                        <h2 id="admin-management-title">Admin dashboard</h2>
+                        <p>Manage the catalog, orders, delivery progress, and payment records.</p>
+                    </div>
+                    <a class="button button-dark" href="{% url 'admin:index' %}">Open dashboard <span aria-hidden="true">↗</span></a>
+                </div>
+                <div class="admin-management-grid">
+                    <a class="admin-management-link" href="{% url 'admin:home_product_changelist' %}">
+                        <span aria-hidden="true">▣</span><strong>Products &amp; inventory</strong><small>Manage listings and availability</small>
+                    </a>
+                    <a class="admin-management-link" href="{% url 'admin:home_category_changelist' %}">
+                        <span aria-hidden="true">▦</span><strong>Categories</strong><small>Organize the product catalog</small>
+                    </a>
+                    <a class="admin-management-link" href="{% url 'admin:home_order_changelist' %}">
+                        <span aria-hidden="true">▤</span><strong>Customer orders</strong><small>Review orders and payment status</small>
+                    </a>
+                    <a class="admin-management-link" href="{% url 'admin:order_updates' %}">
+                        <span aria-hidden="true">↗</span><strong>Order tracking</strong><small>Confirm, ship, and deliver orders</small>
+                    </a>
+                    <a class="admin-management-link" href="{% url 'admin:home_paymenttransaction_changelist' %}">
+                        <span aria-hidden="true">₹</span><strong>Payment details</strong><small>View Razorpay transaction records</small>
+                    </a>
+                </div>
+            </section>
+        {% else %}
         <section
             class="orders-panel"
             data-order-tracking
@@ -106,7 +183,28 @@
             </div>
 
             {% for order in orders %}
-                <article class="account-order" data-order-id="{{ order.pk }}">
+                <article
+                    class="account-order{% if order.status == 'delivered' %} account-order-delivered{% endif %}"
+                    data-order-id="{{ order.pk }}"
+                    {% if order.status == "delivered" %}data-order-delivered{% endif %}
+                >
+                    {% if order.status == "delivered" %}
+                        <div class="delivered-order-summary" data-delivered-summary aria-live="polite">
+                            <span class="delivered-order-check" aria-hidden="true">✓</span>
+                            <div class="delivered-order-info">
+                                {% for item in order.items.all %}
+                                    <p class="delivered-product-name">{{ item.product_name }}</p>
+                                {% endfor %}
+                                <p class="delivered-order-status">Status: Delivered</p>
+                                {% if order.delivered_at %}
+                                    <time
+                                        class="delivered-order-time"
+                                        datetime="{{ order.delivered_at|date:'c' }}"
+                                    >Delivered Date &amp; Time: {{ order.delivered_at|date:"M j, Y, g:i A" }}</time>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% else %}
                     <div class="account-order-top">
                         <div>
                             <span class="order-reference">ORDER #{{ order.pk }}</span>
@@ -211,6 +309,7 @@
                             This order can no longer be cancelled because it has shipped.
                         </p>
                     </section>
+                    {% endif %}
                 </article>
             {% empty %}
                 <div class="empty-orders">
@@ -221,8 +320,9 @@
                 </div>
             {% endfor %}
         </section>
+        {% endif %}
     </main>
-    <script src="{% static 'home/auth.js' %}?v=20261117-2"></script>
-    <script src="{% static 'home/tracking.js' %}?v=20261117-2"></script>
+    <script src="{% static 'home/auth.js' %}?v=20261118-1"></script>
+    <script src="{% static 'home/tracking.js' %}?v=20261118-1"></script>
 </body>
 </html>

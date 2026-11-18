@@ -18,12 +18,24 @@
                 <td>{{ store_summary.pending_order_count }}</td>
             </tr>
             <tr>
+                <th scope="row"><a href="{% url 'admin:order_updates' %}">Update order statuses</a></th>
+                <td>Confirm, ship, and deliver orders</td>
+            </tr>
+            <tr>
                 <th scope="row"><a href="{% url 'admin:home_product_changelist' %}">Products</a></th>
                 <td>{{ store_summary.product_count }} total / {{ store_summary.active_product_count }} active</td>
             </tr>
             <tr>
                 <th scope="row"><a href="{% url 'admin:home_category_changelist' %}">Categories</a></th>
                 <td>{{ store_summary.category_count }}</td>
+            </tr>
+            <tr>
+                <th scope="row"><a href="{% url 'admin:home_paymenttransaction_changelist' %}">Razorpay transactions</a></th>
+                <td>{{ store_summary.razorpay_payment_count }}</td>
+            </tr>
+            <tr>
+                <th scope="row"><a href="{% url 'admin:home_paymenttransaction_changelist' %}?status=failed">Failed payments</a></th>
+                <td>{{ store_summary.failed_payment_count }}</td>
             </tr>
             <tr>
                 <th scope="row">Paid order total</th>

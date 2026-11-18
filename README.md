@@ -60,6 +60,25 @@ python manage.py runserver
 http://127.0.0.1:8000/
 ```
 
+### Razorpay online payments
+
+Set the Razorpay Key ID and Key Secret from your Razorpay Dashboard as environment
+variables before starting Django. Use test-mode credentials while developing; never
+put the Key Secret in templates, JavaScript, or source control.
+
+PowerShell:
+```powershell
+$env:RAZORPAY_KEY_ID = "rzp_test_your_key_id"
+$env:RAZORPAY_KEY_SECRET = "your_test_key_secret"
+python manage.py runserver
+```
+
+Razorpay Checkout displays the payment methods enabled for the configured account.
+The backend verifies the Checkout signature and confirms the captured payment with
+Razorpay before marking an order as paid. Configure automatic payment capture in the
+Razorpay Dashboard; an uncaptured payment is not recorded as paid. Live payments
+require live credentials and a correctly configured public HTTPS deployment.
+
 ### Author
 Rilwankhan
 

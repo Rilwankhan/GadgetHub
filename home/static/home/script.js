@@ -6,7 +6,12 @@ window.GADGETHUB = {
     authenticated: storeConfig.authenticated === "true",
     loginUrl: storeConfig.loginUrl,
     accountUrl: storeConfig.accountUrl,
-    placeOrderUrl: storeConfig.placeOrderUrl
+    placeOrderUrl: storeConfig.placeOrderUrl,
+    razorpayEnabled: storeConfig.razorpayEnabled === "true",
+    razorpayKeyId: storeConfig.razorpayKeyId,
+    verifyPaymentUrl: storeConfig.verifyPaymentUrl,
+    failPaymentUrl: storeConfig.failPaymentUrl,
+    cancelPaymentUrl: storeConfig.cancelPaymentUrl
 };
 
 let selectedCategory = "All";
@@ -80,24 +85,29 @@ function renderProducts() {
         <article class="product-card">
             <div class="product-image-wrap">
                 ${product.badge ? `<span class="product-badge">${escapeHtml(product.badge)}</span>` : ""}
-                <img
-                    class="product-image"
-                    src="${escapeHtml(product.image)}"
-                    alt="${escapeHtml(product.name)}"
-                    loading="lazy">
+                <a class="product-card-image-link" href="${escapeHtml(product.url)}" aria-label="View ${escapeHtml(product.name)}">
+                    <img
+                        class="product-image"
+                        src="${escapeHtml(product.image)}"
+                        alt="${escapeHtml(product.name)}"
+                        loading="lazy">
+                </a>
                 <button class="quick-add" type="button" aria-label="Add ${escapeHtml(product.name)} to your bag" onclick="addToCart(${product.id})">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
             </div>
             <div class="product-info">
-                <div class="product-overline">
-                    <span class="product-category">${escapeHtml(product.category)}</span>
-                    <span class="product-mark" aria-hidden="true">G/H PICK</span>
-                </div>
-                <h3>${escapeHtml(product.name)}</h3>
-                <p class="product-description">${escapeHtml(product.description)}</p>
+                <a class="product-card-details-link" href="${escapeHtml(product.url)}">
+                    <div class="product-overline">
+                        <span class="product-category">${escapeHtml(product.category)}</span>
+                        <span class="product-mark" aria-hidden="true">G/H PICK</span>
+                    </div>
+                    <h3>${escapeHtml(product.name)}</h3>
+                </a>
                 <div class="product-card-bottom">
-                    <div class="product-price">${formatPrice(product.price)}</div>
+                    <a class="product-card-price-link" href="${escapeHtml(product.url)}">
+                        <div class="product-price">${formatPrice(product.price)}</div>
+                    </a>
                     <button class="whatsapp-order" type="button" onclick="orderProduct(${product.id})">
                         Quick order <span aria-hidden="true">↗</span>
                     </button>
@@ -342,7 +352,147 @@ function requestLiveLocation() {
     );
 }
 
-function submitCheckout(event) {
+async function postPaymentUpdate(url, payload) {
+    const response = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": document.querySelector("#checkout-form [name=csrfmiddlewaretoken]").value
+        },
+        body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.error || "Unable to update payment status.");
+    }
+    return data;
+}
+
+function showOrderConfirmation(data, details, paymentLabel, confirmationMessage) {
+    const orderLines = cart.map(item =>
+        `${item.name} × ${item.quantity} — ${formatPrice(item.price * item.quantity)}`
+    );
+    const message = [
+        `GadgetHub order #${data.order_id}`,
+        `Name: ${details.name}`,
+        `Email: ${details.email}`,
+        `Mobile: ${details.mobile}`,
+        `Delivery address: ${details.address}`,
+        `Payment: ${paymentLabel}`,
+        liveLocation
+            ? `Location: https://maps.google.com/?q=${liveLocation.latitude},${liveLocation.longitude}`
+            : "",
+        "Items:",
+        ...orderLines,
+        `Total: ${formatPrice(Number(data.total))}`
+    ].filter(Boolean).join("\n");
+    sessionStorage.removeItem("gadgethub-checkout");
+    sessionStorage.removeItem("gadgethub-cart");
+    cart = [];
+    renderCart();
+
+    const status = document.getElementById("order-status");
+    status.textContent = confirmationMessage;
+    const accountLink = document.createElement("a");
+    accountLink.href = window.GADGETHUB.accountUrl;
+    accountLink.textContent = "View your orders";
+    status.append(accountLink);
+    status.append(document.createTextNode(" · "));
+    const whatsappLink = document.createElement("a");
+    whatsappLink.href = getWhatsAppLink(message);
+    whatsappLink.target = "_blank";
+    whatsappLink.rel = "noopener noreferrer";
+    whatsappLink.textContent = "Notify the store on WhatsApp";
+    status.append(whatsappLink);
+}
+
+function launchRazorpayCheckout(data, details, paymentLabel) {
+    if (!window.Razorpay) {
+        throw new Error("Razorpay Checkout could not be loaded. Please try again.");
+    }
+
+    const status = document.getElementById("order-status");
+    const payment = data.razorpay;
+    return new Promise(resolve => {
+        let completed = false;
+        const checkout = new window.Razorpay({
+            key: payment.key_id,
+            amount: payment.amount,
+            currency: payment.currency,
+            name: "GadgetHub",
+            description: `Order #${data.order_id}`,
+            order_id: payment.order_id,
+            prefill: {
+                name: payment.name,
+                email: payment.email,
+                contact: payment.mobile
+            },
+            handler: async response => {
+                completed = true;
+                status.textContent = "Payment received. Verifying securely with Razorpay...";
+                try {
+                    await postPaymentUpdate(window.GADGETHUB.verifyPaymentUrl, {
+                        order_id: data.order_id,
+                        razorpay_order_id: response.razorpay_order_id,
+                        razorpay_payment_id: response.razorpay_payment_id,
+                        razorpay_signature: response.razorpay_signature
+                    });
+                    showOrderConfirmation(
+                        data,
+                        details,
+                        paymentLabel,
+                        `Order #${data.order_id} was paid and verified by Razorpay. `
+                    );
+                } catch (error) {
+                    status.textContent =
+                        `${error.message || "Payment verification is still pending."} ` +
+                        "Do not retry payment until you check your order status or contact the store.";
+                }
+                resolve();
+            },
+            modal: {
+                ondismiss: async () => {
+                    if (completed) {
+                        return;
+                    }
+                    completed = true;
+                    try {
+                        await postPaymentUpdate(window.GADGETHUB.cancelPaymentUrl, {
+                            order_id: data.order_id,
+                            razorpay_order_id: payment.order_id
+                        });
+                    } catch (error) {
+                        console.error("Could not save Razorpay checkout cancellation.", error);
+                    }
+                    status.textContent =
+                        "Checkout closed before completing payment. Your order is saved, but payment is not confirmed.";
+                    resolve();
+                }
+            }
+        });
+
+        checkout.on("payment.failed", response => {
+            const error = response && response.error ? response.error : {};
+            status.textContent =
+                error.description || "Payment failed. You can try another method in Razorpay Checkout.";
+            postPaymentUpdate(window.GADGETHUB.failPaymentUrl, {
+                order_id: data.order_id,
+                razorpay_order_id: payment.order_id,
+                error: {
+                    code: error.code || "",
+                    description: error.description || ""
+                }
+            }).catch(updateError => {
+                console.error("Could not save Razorpay payment failure.", updateError);
+            });
+        });
+
+        checkout.open();
+    });
+}
+
+async function submitCheckout(event) {
     event.preventDefault();
 
     if (cart.length === 0) {
@@ -374,66 +524,49 @@ function submitCheckout(event) {
     const status = document.getElementById("order-status");
     submitButton.disabled = true;
     status.textContent = "Saving your order...";
-    fetch(window.GADGETHUB.placeOrderUrl, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": document.querySelector("#checkout-form [name=csrfmiddlewaretoken]").value
-        },
-        body: JSON.stringify({
-            name,
-            email,
-            mobile,
-            address,
-            payment_method: paymentMethod,
-            cart: cart.map(item => ({ id: item.id, quantity: item.quantity })),
-            location: liveLocation
-        })
-    }).then(async response => {
+    const details = { name, email, mobile, address };
+    const paymentLabel =
+        document.getElementById("payment-method").selectedOptions[0].textContent;
+    try {
+        const response = await fetch(window.GADGETHUB.placeOrderUrl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": document.querySelector("#checkout-form [name=csrfmiddlewaretoken]").value
+            },
+            body: JSON.stringify({
+                name,
+                email,
+                mobile,
+                address,
+                payment_method: paymentMethod,
+                cart: cart.map(item => ({ id: item.id, quantity: item.quantity })),
+                location: liveLocation
+            })
+        });
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.error || "Unable to save the order.");
         }
-        const orderLines = cart.map(item =>
-            `${item.name} × ${item.quantity} — ${formatPrice(item.price * item.quantity)}`
-        );
-        const message = [
-            `GadgetHub order #${data.order_id}`,
-            `Name: ${name}`,
-            `Email: ${email}`,
-            `Mobile: ${mobile}`,
-            `Delivery address: ${address}`,
-            `Payment: ${document.getElementById("payment-method").selectedOptions[0].textContent}`,
-            liveLocation
-                ? `Location: https://maps.google.com/?q=${liveLocation.latitude},${liveLocation.longitude}`
-                : "",
-            "Items:",
-            ...orderLines,
-            `Total: ${formatPrice(Number(data.total))}`
-        ].filter(Boolean).join("\n");
-        sessionStorage.removeItem("gadgethub-checkout");
-        sessionStorage.removeItem("gadgethub-cart");
-        cart = [];
-        renderCart();
-        status.textContent =
-            `Order #${data.order_id} was saved to your account. Payment is not processed online; the store will confirm payment and delivery details. `;
-        const accountLink = document.createElement("a");
-        accountLink.href = window.GADGETHUB.accountUrl;
-        accountLink.textContent = "View your orders";
-        status.append(accountLink);
-        status.append(document.createTextNode(" · "));
-        const whatsappLink = document.createElement("a");
-        whatsappLink.href = getWhatsAppLink(message);
-        whatsappLink.target = "_blank";
-        whatsappLink.rel = "noopener noreferrer";
-        whatsappLink.textContent = "Notify the store on WhatsApp";
-        status.append(whatsappLink);
-    }).catch(error => {
+        if (paymentMethod === "razorpay") {
+            if (!data.razorpay) {
+                throw new Error("Razorpay order details were not returned.");
+            }
+            await launchRazorpayCheckout(data, details, paymentLabel);
+        } else {
+            showOrderConfirmation(
+                data,
+                details,
+                paymentLabel,
+                `Order #${data.order_id} was saved to your account. Payment will be confirmed with the store. `
+            );
+        }
+    } catch (error) {
         status.textContent = error.message || "Unable to save the order. Please try again.";
-    }).finally(() => {
+    } finally {
         submitButton.disabled = false;
-    });
+    }
 }
 
 document.getElementById("location-button").addEventListener("click", requestLiveLocation);
@@ -464,3 +597,13 @@ document.addEventListener("keydown", event => {
 
 renderProducts();
 renderCart();
+const requestedOrderId = new URLSearchParams(window.location.search).get("order");
+if (requestedOrderId) {
+    const requestedProduct = products.find(
+        product => product.id === Number(requestedOrderId)
+    );
+    if (requestedProduct) {
+        orderProduct(requestedProduct.id);
+        window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+    }
+}

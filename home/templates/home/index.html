@@ -10,54 +10,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261117">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261118-4">
 </head>
 <body class="storefront">
-    <div class="announcement-bar">
-        <span class="announcement-dot"></span>
-        <span>Good tech, made easy.</span>
-        <span class="announcement-divider">·</span>
-        <span>Questions? <a href="#contact">We’re here to help</a></span>
-    </div>
-
-    <header class="navbar site-header" id="home">
-        <a href="#home" class="logo" aria-label="GadgetHub home">
-            <span class="logo-mark">g</span>
-            <span class="logo-word">gadget<span>hub</span></span>
-        </a>
-
-        <nav class="nav-links" aria-label="Main navigation">
-            <a href="#products">Shop</a>
-            <a href="#about">Our story</a>
-            <a href="#contact">Support</a>
-            {% if not user.is_authenticated %}
-                <a class="mobile-register-link" href="{% url 'register' %}">Join us</a>
-            {% endif %}
-        </nav>
-
-        <div class="header-actions">
-            <div class="account-links">
-                {% if user.is_authenticated %}
-                    <a href="{% url 'account' %}">My account</a>
-                    {% if user.is_staff %}
-                        <a href="{% url 'admin:index' %}">Admin</a>
-                    {% endif %}
-                    <form method="post" action="{% url 'logout' %}">
-                        {% csrf_token %}
-                        <button type="submit">Log out</button>
-                    </form>
-                {% else %}
-                    <a href="{% url 'login' %}">Log in</a>
-                    <a class="account-create" href="{% url 'register' %}">Create account</a>
-                {% endif %}
-            </div>
-            <button class="cart-button" type="button" onclick="openCart()" aria-label="Open shopping bag">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 12H4L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>
-                <span>Bag</span>
-                <span class="cart-count" id="cart-count">0</span>
-            </button>
-        </div>
-    </header>
+    {% include "home/includes/store_header.html" with show_cart=True %}
 
     <main>
         <section class="hero-section">
@@ -239,6 +195,9 @@
                         <select id="payment-method" name="payment_method">
                             <option value="cash_on_delivery">Cash on delivery</option>
                             <option value="arrange_with_store">Arrange with the store</option>
+                            {% if razorpay_enabled %}
+                                <option value="razorpay">Pay online with Razorpay</option>
+                            {% endif %}
                         </select>
                     </div>
                 </div>
@@ -257,7 +216,14 @@
                     <div id="checkout-order-items"></div>
                     <div class="checkout-summary-total" id="checkout-summary-total"></div>
                 </div>
-                <p class="checkout-note">Your order will be saved to your account. Online payment is not available; the store will confirm payment details.</p>
+                <p class="checkout-note">
+                    Your order will be saved to your account.
+                    {% if razorpay_enabled %}
+                        For online payments, available methods are shown securely by Razorpay Checkout.
+                    {% else %}
+                        Online payment is not available; the store will confirm payment details.
+                    {% endif %}
+                </p>
                 <div class="checkout-actions">
                     <button class="checkout-cancel" type="button" onclick="backToCart()">Back to bag</button>
                     <button class="checkout-button" type="submit">Place your order <span aria-hidden="true">→</span></button>
@@ -273,7 +239,15 @@
         data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}"
         data-login-url="{% url 'login' %}?next={{ request.path|urlencode }}"
         data-account-url="{% url 'account' %}"
-        data-place-order-url="{% url 'place_order' %}"></script>
-    <script src="{% static 'home/script.js' %}?v=20261117"></script>
+        data-place-order-url="{% url 'place_order' %}"
+        data-razorpay-enabled="{{ razorpay_enabled|yesno:'true,false' }}"
+        data-razorpay-key-id="{{ razorpay_key_id }}"
+        data-verify-payment-url="{% url 'verify_razorpay_payment' %}"
+        data-fail-payment-url="{% url 'fail_razorpay_payment' %}"
+        data-cancel-payment-url="{% url 'cancel_razorpay_payment' %}"></script>
+    {% if razorpay_enabled %}
+        <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    {% endif %}
+    <script src="{% static 'home/script.js' %}?v=20261118-3"></script>
 </body>
 </html>

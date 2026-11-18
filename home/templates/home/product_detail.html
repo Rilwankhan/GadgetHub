@@ -1,0 +1,53 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f8fa">
+    <title>{{ product.name }} | GadgetHub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261118-3">
+</head>
+<body class="storefront product-detail-page">
+    {% include "home/includes/store_header.html" %}
+    <main class="product-detail-shell">
+        <nav class="product-breadcrumb" aria-label="Breadcrumb">
+            <a href="{% url 'home' %}">Home</a>
+            <span aria-hidden="true">/</span>
+            <a href="{% url 'home' %}#products">Shop</a>
+            <span aria-hidden="true">/</span>
+            <span>{{ product.category.name }}</span>
+        </nav>
+        <article class="product-detail">
+            <div class="product-detail-gallery">
+                <div class="product-detail-image-frame">
+                    <img class="product-detail-image" src="{{ product.image }}" alt="{{ product.name }}">
+                </div>
+            </div>
+            <div class="product-detail-copy">
+                <p class="product-detail-category">{{ product.category.name }}</p>
+                <h1>{{ product.name }}</h1>
+                {% if product.badge %}
+                    <span class="product-detail-badge">{{ product.badge }}</span>
+                {% endif %}
+                <div class="product-detail-prices">
+                    <span class="product-detail-price">₹{{ product.price|floatformat:2 }}</span>
+                    {% if product.original_price and product.original_price > product.price %}
+                        <del class="product-original-price">₹{{ product.original_price|floatformat:2 }}</del>
+                    {% endif %}
+                </div>
+                <section class="product-detail-description-section" aria-labelledby="product-description-heading">
+                    <h2 id="product-description-heading">About this product</h2>
+                    <p class="product-detail-description">{{ product.description }}</p>
+                </section>
+                <a class="button button-primary product-detail-order" href="{% url 'home' %}?order={{ product.pk }}">
+                    Order <span aria-hidden="true">→</span>
+                </a>
+            </div>
+        </article>
+    </main>
+</body>
+</html>

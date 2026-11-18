@@ -5,8 +5,13 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from django.contrib.auth.models import Group
 from django import forms
+from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Sum
+from django.http import HttpResponseNotAllowed
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import path
 
 from .models import (
     Category,
@@ -14,8 +19,18 @@ from .models import (
     Order,
     OrderItem,
     OrderTrackingEvent,
+    PaymentTransaction,
     Product,
 )
+
+
+def record_order_status_change(order, updated_by):
+    return OrderTrackingEvent.objects.create(
+        order=order,
+        status=order.status,
+        description=f"Your order is now {order.get_status_display().lower()}.",
+        updated_by=updated_by,
+    )
 
 
 class GadgetHubAdminSite(admin.AdminSite):
@@ -24,6 +39,21 @@ class GadgetHubAdminSite(admin.AdminSite):
     index_title = "Store management"
     index_template = "home/admin/index.html"
     login_template = "home/login.html"
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "order-updates/",
+                self.admin_view(self.order_updates),
+                name="order_updates",
+            ),
+            path(
+                "order-updates/<int:order_id>/advance/",
+                self.admin_view(self.advance_order),
+                name="order_advance",
+            ),
+        ]
+        return custom_urls + super().get_urls()
 
     def index(self, request, extra_context=None):
         non_cancelled_orders = Order.objects.exclude(status=Order.Status.CANCELLED)
@@ -45,9 +75,61 @@ class GadgetHubAdminSite(admin.AdminSite):
                     Order.PaymentStatus.PENDING,
                 ]
             ).aggregate(total=Sum("total"))["total"] or Decimal("0.00"),
+            "razorpay_payment_count": PaymentTransaction.objects.count(),
+            "failed_payment_count": PaymentTransaction.objects.filter(
+                status=PaymentTransaction.Status.FAILED
+            ).count(),
         }
         context = {**(extra_context or {}), "store_summary": store_summary}
         return super().index(request, extra_context=context)
+
+    def order_updates(self, request):
+        orders = (
+            Order.objects.select_related("user")
+            .prefetch_related("items")
+            .all()
+        )
+        context = {
+            **self.each_context(request),
+            "title": "Order updates",
+            "orders": orders,
+        }
+        return render(request, "home/admin/order_updates.html", context)
+
+    def advance_order(self, request, order_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        expected_status = request.POST.get("expected_status")
+        with transaction.atomic():
+            order = get_object_or_404(
+                Order.objects.select_for_update(),
+                pk=order_id,
+            )
+            if expected_status != order.status:
+                messages.error(
+                    request,
+                    f"Order #{order.pk} changed. Refresh the page before updating it.",
+                )
+                return redirect("admin:order_updates")
+
+            next_status = order.next_status
+            if next_status is None:
+                messages.error(
+                    request,
+                    f"Order #{order.pk} has no further delivery status.",
+                )
+                return redirect("admin:order_updates")
+
+            order.status = next_status
+            order.save(update_fields=["status"])
+            record_order_status_change(order, request.user)
+
+        messages.success(
+            request,
+            f"Order #{order.pk} is now {order.get_status_display().lower()}.",
+        )
+        return redirect("admin:order_updates")
 
 
 gadgethub_admin_site = GadgetHubAdminSite(name="admin")
@@ -116,6 +198,26 @@ class OrderTrackingEventInline(admin.TabularInline):
         return False
 
 
+class PaymentTransactionInline(admin.TabularInline):
+    model = PaymentTransaction
+    fields = [
+        "razorpay_order_id",
+        "razorpay_payment_id",
+        "status",
+        "amount",
+        "currency",
+        "error_code",
+        "error_description",
+        "created_at",
+    ]
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 class OrderAdminForm(forms.ModelForm):
     class Meta:
         model = Order
@@ -161,7 +263,11 @@ class OrderAdmin(admin.ModelAdmin):
         "payment_status", "total",
         "location_latitude", "location_longitude", "created_at",
     ]
-    inlines = [OrderItemInline, OrderTrackingEventInline]
+    inlines = [
+        OrderItemInline,
+        PaymentTransactionInline,
+        OrderTrackingEventInline,
+    ]
     date_hierarchy = "created_at"
     list_per_page = 50
 
@@ -177,12 +283,49 @@ class OrderAdmin(admin.ModelAdmin):
         )
         super().save_model(request, obj, form, change)
         if previous_status and obj.status != previous_status:
-            OrderTrackingEvent.objects.create(
-                order=obj,
-                status=obj.status,
-                description=f"Your order is now {obj.get_status_display().lower()}.",
-                updated_by=request.user,
-            )
+            record_order_status_change(obj, request.user)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class PaymentTransactionAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "order",
+        "razorpay_order_id",
+        "razorpay_payment_id",
+        "status",
+        "amount",
+        "currency",
+        "created_at",
+    ]
+    list_filter = ["status", "currency", "created_at"]
+    search_fields = [
+        "razorpay_order_id",
+        "razorpay_payment_id",
+        "order__full_name",
+        "order__email",
+    ]
+    list_select_related = ["order"]
+    readonly_fields = [
+        "order",
+        "razorpay_order_id",
+        "razorpay_payment_id",
+        "signature",
+        "amount",
+        "currency",
+        "status",
+        "error_code",
+        "error_description",
+        "created_at",
+        "updated_at",
+    ]
+    date_hierarchy = "created_at"
+    list_per_page = 50
 
     def has_add_permission(self, request):
         return False
@@ -196,3 +339,4 @@ gadgethub_admin_site.register(Group, GroupAdmin)
 gadgethub_admin_site.register(Category, CategoryAdmin)
 gadgethub_admin_site.register(Product, ProductAdmin)
 gadgethub_admin_site.register(Order, OrderAdmin)
+gadgethub_admin_site.register(PaymentTransaction, PaymentTransactionAdmin)

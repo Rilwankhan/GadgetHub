@@ -65,3 +65,32 @@ document.querySelectorAll("[data-password-panel-toggle]").forEach(toggle => {
         toggle.textContent = isExpanded ? openLabel : closeLabel;
     });
 });
+
+document.querySelectorAll("[data-personal-details-toggle]").forEach(toggle => {
+    const panel = document.getElementById(toggle.getAttribute("aria-controls"));
+    if (!panel) {
+        return;
+    }
+
+    toggle.addEventListener("click", () => {
+        const isExpanded = toggle.getAttribute("aria-expanded") === "true";
+        toggle.setAttribute("aria-expanded", String(!isExpanded));
+        panel.hidden = isExpanded;
+    });
+
+    const summary = panel.querySelector("[data-profile-summary]");
+    const editor = panel.querySelector("[data-profile-editor]");
+    const form = editor.querySelector("form");
+
+    panel.querySelector("[data-profile-edit]").addEventListener("click", () => {
+        summary.hidden = true;
+        editor.hidden = false;
+        editor.querySelector("input:not([type='hidden'])").focus();
+    });
+
+    panel.querySelector("[data-profile-cancel]").addEventListener("click", () => {
+        form.reset();
+        editor.hidden = true;
+        summary.hidden = false;
+    });
+});

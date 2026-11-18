@@ -11,9 +11,58 @@ if (orderTracking) {
         });
     });
 
+    function renderDeliveredOrder(card, order) {
+        const summary = document.createElement("div");
+        summary.className = "delivered-order-summary";
+        summary.setAttribute("aria-live", "polite");
+
+        const check = document.createElement("span");
+        check.className = "delivered-order-check";
+        check.setAttribute("aria-hidden", "true");
+        check.textContent = "✓";
+
+        const info = document.createElement("div");
+        info.className = "delivered-order-info";
+        order.product_names.forEach(productName => {
+            const name = document.createElement("p");
+            name.className = "delivered-product-name";
+            name.textContent = productName;
+            info.append(name);
+        });
+
+        const status = document.createElement("p");
+        status.className = "delivered-order-status";
+        status.textContent = "Status: Delivered";
+        info.append(status);
+
+        if (order.delivered_at) {
+            const deliveredAt = document.createElement("time");
+            deliveredAt.className = "delivered-order-time";
+            deliveredAt.dateTime = order.delivered_at;
+            deliveredAt.textContent =
+                `Delivered Date & Time: ${new Date(order.delivered_at).toLocaleString(
+                    undefined,
+                    { dateStyle: "medium", timeStyle: "short" }
+                )}`;
+            info.append(deliveredAt);
+        }
+
+        summary.append(check, info);
+        card.classList.add("account-order-delivered");
+        card.dataset.orderDelivered = "true";
+        card.replaceChildren(summary);
+    }
+
     function updateOrder(order) {
         const card = orderTracking.querySelector(`[data-order-id="${order.id}"]`);
         if (!card) {
+            return;
+        }
+
+        if (order.status === "delivered") {
+            if (!card.hasAttribute("data-order-delivered")) {
+                renderDeliveredOrder(card, order);
+            }
             return;
         }
 
@@ -98,14 +147,22 @@ if (orderTracking) {
         }
     }
 
-    if (orderTracking.querySelector("[data-order-id]")) {
+    function hasTrackableOrders() {
+        return Boolean(
+            orderTracking.querySelector(
+                "[data-order-id]:not([data-order-delivered])"
+            )
+        );
+    }
+
+    if (hasTrackableOrders()) {
         window.setInterval(() => {
-            if (!document.hidden) {
+            if (!document.hidden && hasTrackableOrders()) {
                 refreshOrderTracking();
             }
         }, 10000);
         document.addEventListener("visibilitychange", () => {
-            if (!document.hidden) {
+            if (!document.hidden && hasTrackableOrders()) {
                 refreshOrderTracking();
             }
         });

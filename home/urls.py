@@ -6,6 +6,7 @@ from . import views
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("products/<int:product_id>/", views.product_detail, name="product_detail"),
     path("accounts/login/", views.SharedLoginView.as_view(), name="login"),
     path(
         "accounts/password-reset/",
@@ -63,4 +64,19 @@ urlpatterns = [
     path("orders/tracking/", views.order_tracking, name="order_tracking"),
     path("orders/<int:order_id>/cancel/", views.cancel_order, name="cancel_order"),
     path("orders/create/", views.place_order, name="place_order"),
+    path(
+        "payments/razorpay/verify/",
+        views.verify_razorpay_payment,
+        name="verify_razorpay_payment",
+    ),
+    path(
+        "payments/razorpay/fail/",
+        views.fail_razorpay_payment,
+        name="fail_razorpay_payment",
+    ),
+    path(
+        "payments/razorpay/cancel/",
+        views.cancel_razorpay_payment,
+        name="cancel_razorpay_payment",
+    ),
 ]

@@ -22,6 +22,9 @@ class Product(models.Model):
         Category, on_delete=models.PROTECT, related_name="products"
     )
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    original_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
     description = models.TextField()
     image = models.URLField(max_length=500)
     badge = models.CharField(max_length=40, blank=True)
@@ -59,11 +62,14 @@ class Order(models.Model):
     class PaymentMethod(models.TextChoices):
         CASH_ON_DELIVERY = "cash_on_delivery", "Cash on delivery"
         ARRANGE_WITH_STORE = "arrange_with_store", "Arrange with store"
+        RAZORPAY = "razorpay", "Razorpay"
 
     class PaymentStatus(models.TextChoices):
         UNPAID = "unpaid", "Unpaid"
         PENDING = "pending", "Pending"
         PAID = "paid", "Paid"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
         REFUNDED = "refunded", "Refunded"
 
     user = models.ForeignKey(
@@ -102,6 +108,12 @@ class Order(models.Model):
         }.get(self.status)
 
     @property
+    def next_status_label(self):
+        if self.next_status is None:
+            return None
+        return self.Status(self.next_status).label
+
+    @property
     def cancellation_deadline(self):
         return self.created_at + timedelta(hours=48)
 
@@ -116,6 +128,15 @@ class Order(models.Model):
     def latest_tracking_event(self):
         events = list(self.tracking_events.all())
         return events[-1] if events else None
+
+    @property
+    def delivered_at(self):
+        if self.status != self.Status.DELIVERED:
+            return None
+        event = self.latest_tracking_event
+        if event and event.status == self.Status.DELIVERED:
+            return event.created_at
+        return None
 
     @property
     def tracking_steps(self):
@@ -138,6 +159,36 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order #{self.pk} — {self.full_name}"
+
+
+class PaymentTransaction(models.Model):
+    class Status(models.TextChoices):
+        CREATED = "created", "Created"
+        PAID = "paid", "Paid"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    order = models.ForeignKey(
+        Order, on_delete=models.CASCADE, related_name="payment_transactions"
+    )
+    razorpay_order_id = models.CharField(max_length=100, blank=True)
+    razorpay_payment_id = models.CharField(max_length=100, blank=True)
+    signature = models.CharField(max_length=128, blank=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default="INR")
+    status = models.CharField(
+        max_length=12, choices=Status.choices, default=Status.CREATED
+    )
+    error_code = models.CharField(max_length=100, blank=True)
+    error_description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self):
+        return f"Payment for order #{self.order_id}: {self.get_status_display()}"
 
 
 class OrderTrackingEvent(models.Model):
