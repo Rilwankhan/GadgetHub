@@ -139,6 +139,20 @@ class Order(models.Model):
         return None
 
     @property
+    def cancelled_at(self):
+        if self.status != self.Status.CANCELLED:
+            return None
+        events = list(self.tracking_events.all())
+        return next(
+            (
+                event.created_at
+                for event in reversed(events)
+                if event.status == self.Status.CANCELLED
+            ),
+            None,
+        )
+
+    @property
     def tracking_steps(self):
         statuses = (
             self.Status.CONFIRMED,

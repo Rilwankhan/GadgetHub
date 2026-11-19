@@ -9,14 +9,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261118-4">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261119-3">
 </head>
 <body class="account-page {% if is_admin %}admin-dashboard{% else %}customer-dashboard{% endif %}">
     <header class="dashboard-header">
         <div class="dashboard-header-inner">
             <a href="{% url 'home' %}" class="logo">
-                <span class="logo-mark">g</span>
-                <span class="logo-word">gadget<span>hub</span></span>
+                <span class="logo-word">Gadget<span>Hub</span></span>
             </a>
             <nav class="dashboard-nav" aria-label="Account navigation">
                 <a href="{% url 'home' %}">Continue shopping</a>
@@ -77,14 +76,10 @@
                     <div data-profile-summary {% if show_profile_edit %}hidden{% endif %}>
                         <dl class="personal-details-list">
                             {% if request.user.is_staff %}
-                                <div><dt>First name</dt><dd>{{ request.user.first_name|default:"Not provided" }}</dd></div>
-                                <div><dt>Last name</dt><dd>{{ request.user.last_name|default:"Not provided" }}</dd></div>
                                 <div><dt>Username</dt><dd>{{ request.user.username }}</dd></div>
                                 <div><dt>Email</dt><dd>{{ request.user.email|default:"Not provided" }}</dd></div>
                                 <div><dt>Employee ID</dt><dd>{{ profile.employee_id|default:"Not provided" }}</dd></div>
                                 <div><dt>Mobile number</dt><dd>{{ profile.mobile|default:"Not provided" }}</dd></div>
-                                <div><dt>Address</dt><dd>{{ profile.address|default:"Not provided" }}</dd></div>
-                                <div><dt>Landmark</dt><dd>{{ profile.landmark|default:"Not provided" }}</dd></div>
                             {% else %}
                                 <div><dt>First name</dt><dd>{{ request.user.first_name|default:"Not provided" }}</dd></div>
                                 <div><dt>Last name</dt><dd>{{ request.user.last_name|default:"Not provided" }}</dd></div>
@@ -184,9 +179,10 @@
 
             {% for order in orders %}
                 <article
-                    class="account-order{% if order.status == 'delivered' %} account-order-delivered{% endif %}"
+                    class="account-order{% if order.status == 'delivered' %} account-order-delivered{% elif order.status == 'cancelled' %} account-order-cancelled{% endif %}"
                     data-order-id="{{ order.pk }}"
                     {% if order.status == "delivered" %}data-order-delivered{% endif %}
+                    {% if order.status == "cancelled" %}data-order-cancelled-card{% endif %}
                 >
                     {% if order.status == "delivered" %}
                         <div class="delivered-order-summary" data-delivered-summary aria-live="polite">
@@ -202,6 +198,36 @@
                                         datetime="{{ order.delivered_at|date:'c' }}"
                                     >Delivered Date &amp; Time: {{ order.delivered_at|date:"M j, Y, g:i A" }}</time>
                                 {% endif %}
+                            </div>
+                        </div>
+                    {% elif order.status == "cancelled" %}
+                        <div class="delivered-order-summary cancelled-order-summary" data-cancelled-summary aria-live="polite">
+                            <span class="delivered-order-check cancelled-order-cross" aria-hidden="true">✕</span>
+                            <div class="delivered-order-info">
+                                {% for item in order.items.all %}
+                                    <p class="delivered-product-name">{{ item.product_name }}</p>
+                                {% endfor %}
+                                <p class="delivered-order-status">Status: Cancelled</p>
+                                <time
+                                    class="delivered-order-time"
+                                    datetime="{{ order.created_at|date:'c' }}"
+                                >Booking Date &amp; Time: {{ order.created_at|date:"M j, Y, g:i A" }}</time>
+                                {% if order.cancelled_at %}
+                                    <time
+                                        class="delivered-order-time"
+                                        datetime="{{ order.cancelled_at|date:'c' }}"
+                                    >Cancellation Date &amp; Time: {{ order.cancelled_at|date:"M j, Y, g:i A" }}</time>
+                                {% endif %}
+                                <form
+                                    method="post"
+                                    action="{% url 'delete_cancelled_order' order.pk %}"
+                                    class="delete-cancelled-order-form"
+                                    data-delete-cancelled-order
+                                    data-confirm-message="Delete cancelled order #{{ order.pk }} from your order history?"
+                                >
+                                    {% csrf_token %}
+                                    <button type="submit" class="button button-delete-order">Delete Order</button>
+                                </form>
                             </div>
                         </div>
                     {% else %}
@@ -310,10 +336,13 @@
                         </p>
                     </section>
                     {% endif %}
+                    {% if order.payment_method == "razorpay" and order.payment_status == "paid" and order.has_verified_payment %}
+                        <a class="button button-outline payment-receipt-download" href="{% url 'payment_receipt' order.pk %}">Download payment receipt (PDF)</a>
+                    {% endif %}
                 </article>
             {% empty %}
                 <div class="empty-orders">
-                    <span class="empty-orders-icon" aria-hidden="true">✳</span>
+                    <span class="empty-orders-icon" aria-hidden="true">GH</span>
                     <h3>Your order story starts here.</h3>
                     <p>When you find something you love, your order details and updates will show up here.</p>
                     <a href="{% url 'home' %}#products" class="button button-primary">Explore the collection <span aria-hidden="true">→</span></a>
@@ -323,6 +352,6 @@
         {% endif %}
     </main>
     <script src="{% static 'home/auth.js' %}?v=20261118-1"></script>
-    <script src="{% static 'home/tracking.js' %}?v=20261118-1"></script>
+    <script src="{% static 'home/tracking.js' %}?v=20261119-1"></script>
 </body>
 </html>

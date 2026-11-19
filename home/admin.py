@@ -1,3 +1,5 @@
+import re
+from datetime import datetime
 from decimal import Decimal
 
 from django.contrib import admin
@@ -9,9 +11,16 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
-from django.http import HttpResponseNotAllowed
+from django.http import (
+    FileResponse,
+    HttpResponseBadRequest,
+    HttpResponseForbidden,
+    HttpResponseNotAllowed,
+)
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import path
+from django.utils.html import format_html, format_html_join
+from django.urls import path, reverse
+from django.utils import timezone
 
 from .models import (
     Category,
@@ -22,6 +31,11 @@ from .models import (
     PaymentTransaction,
     Product,
 )
+from .pdf_reports import build_monthly_sales_report, build_order_details_report
+
+
+def can_view_order_data(user):
+    return user.has_perm("home.view_order") or user.has_perm("home.change_order")
 
 
 def record_order_status_change(order, updated_by):
@@ -52,6 +66,16 @@ class GadgetHubAdminSite(admin.AdminSite):
                 self.admin_view(self.advance_order),
                 name="order_advance",
             ),
+            path(
+                "reports/monthly-sales/",
+                self.admin_view(self.monthly_sales_report),
+                name="monthly_sales_report",
+            ),
+            path(
+                "orders/<int:order_id>/download-pdf/",
+                self.admin_view(self.order_details_pdf),
+                name="order_details_pdf",
+            ),
         ]
         return custom_urls + super().get_urls()
 
@@ -79,11 +103,77 @@ class GadgetHubAdminSite(admin.AdminSite):
             "failed_payment_count": PaymentTransaction.objects.filter(
                 status=PaymentTransaction.Status.FAILED
             ).count(),
+            "current_month": timezone.localdate().strftime("%Y-%m"),
         }
-        context = {**(extra_context or {}), "store_summary": store_summary}
+        context = {
+            **(extra_context or {}),
+            "store_summary": store_summary,
+            "can_view_orders": can_view_order_data(request.user),
+        }
         return super().index(request, extra_context=context)
 
+    def monthly_sales_report(self, request):
+        if not can_view_order_data(request.user):
+            return HttpResponseForbidden(
+                "You do not have permission to view order reports."
+            )
+
+        month_value = request.GET.get(
+            "month", timezone.localdate().strftime("%Y-%m")
+        )
+        if not re.fullmatch(r"\d{4}-\d{2}", month_value):
+            return HttpResponseBadRequest("Month must use the YYYY-MM format.")
+        try:
+            month = datetime.strptime(month_value, "%Y-%m")
+        except ValueError:
+            return HttpResponseBadRequest("Month must use the YYYY-MM format.")
+
+        start = timezone.make_aware(month.replace(day=1))
+        if month.month == 12:
+            next_month = month.replace(year=month.year + 1, month=1, day=1)
+        else:
+            next_month = month.replace(month=month.month + 1, day=1)
+        end = timezone.make_aware(next_month)
+        orders = (
+            Order.objects.filter(created_at__gte=start, created_at__lt=end)
+            .select_related("user")
+            .prefetch_related("items", "payment_transactions")
+            .order_by("created_at", "pk")
+        )
+        report = build_monthly_sales_report(month, orders)
+        return FileResponse(
+            report,
+            as_attachment=True,
+            filename=f"gadgethub-monthly-sales-{month_value}.pdf",
+            content_type="application/pdf",
+        )
+
+    def order_details_pdf(self, request, order_id):
+        if not can_view_order_data(request.user):
+            return HttpResponseForbidden(
+                "You do not have permission to view order details."
+            )
+
+        order = get_object_or_404(
+            Order.objects.select_related("user").prefetch_related(
+                "items", "payment_transactions", "tracking_events"
+            ),
+            pk=order_id,
+        )
+        report = build_order_details_report(order)
+        return FileResponse(
+            report,
+            as_attachment=True,
+            filename=f"gadgethub-order-{order.pk}.pdf",
+            content_type="application/pdf",
+        )
+
     def order_updates(self, request):
+        if not can_view_order_data(request.user):
+            return HttpResponseForbidden(
+                "You do not have permission to view orders."
+            )
+
         orders = (
             Order.objects.select_related("user")
             .prefetch_related("items")
@@ -97,6 +187,10 @@ class GadgetHubAdminSite(admin.AdminSite):
         return render(request, "home/admin/order_updates.html", context)
 
     def advance_order(self, request, order_id):
+        if not request.user.has_perm("home.change_order"):
+            return HttpResponseForbidden(
+                "You do not have permission to update orders."
+            )
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
 
@@ -153,7 +247,6 @@ class GadgetHubUserAdmin(UserAdmin):
     readonly_fields = ["last_login", "date_joined"]
     inlines = [CustomerProfileInline]
 
-
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ["name", "product_count"]
     search_fields = ["name"]
@@ -179,6 +272,9 @@ class OrderItemInline(admin.TabularInline):
         "product", "product_name", "unit_price", "quantity", "line_total",
     ]
     can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
     @admin.display(description="Line total")
     def line_total(self, item):
@@ -251,17 +347,65 @@ class OrderAdminForm(forms.ModelForm):
 
 class OrderAdmin(admin.ModelAdmin):
     form = OrderAdminForm
+    fieldsets = [
+        (
+            "Customer & contact",
+            {
+                "fields": [("user", "full_name"), ("email", "phone")],
+                "classes": ["gadgethub-order-fieldset"],
+            },
+        ),
+        (
+            "Delivery destination",
+            {
+                "fields": [
+                    "address",
+                    ("location_latitude", "location_longitude"),
+                    "delivery_map_link",
+                ],
+                "classes": ["gadgethub-order-fieldset", "wide"],
+            },
+        ),
+        (
+            "Order & payment",
+            {
+                "fields": [
+                    ("status", "payment_status"),
+                    ("payment_method", "total"),
+                    "created_at",
+                    "download_order_pdf",
+                ],
+                "classes": ["gadgethub-order-fieldset"],
+            },
+        ),
+    ]
     list_display = [
-        "id", "full_name", "user", "total", "status", "payment_method",
-        "payment_status", "created_at",
+        "id",
+        "download_order_pdf",
+        "customer_details",
+        "order_items_summary",
+        "delivery_location",
+        "order_status_display",
+        "payment_method_display",
+        "payment_status_display",
+        "total",
+        "created_at",
     ]
     list_filter = ["status", "payment_method", "payment_status", "created_at"]
-    search_fields = ["full_name", "email", "phone", "user__username", "user__email"]
+    search_fields = [
+        "full_name",
+        "email",
+        "phone",
+        "address",
+        "user__username",
+        "user__email",
+    ]
     list_select_related = ["user"]
     readonly_fields = [
         "user", "full_name", "email", "phone", "address", "payment_method",
         "payment_status", "total",
-        "location_latitude", "location_longitude", "created_at",
+        "location_latitude", "location_longitude", "delivery_map_link",
+        "created_at", "download_order_pdf",
     ]
     inlines = [
         OrderItemInline,
@@ -271,9 +415,112 @@ class OrderAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
     list_per_page = 50
 
+    class Media:
+        css = {"all": ("home/admin_orders.css",)}
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related(
+            "items", "payment_transactions"
+        )
+
+    @admin.display(description="Order PDF")
+    def download_order_pdf(self, order):
+        url = reverse("admin:order_details_pdf", args=[order.pk])
+        return format_html(
+            '<a href="{}">Download Order Details (PDF)</a>',
+            url,
+        )
+
+    @admin.display(description="Customer & contact")
+    def customer_details(self, order):
+        return format_html(
+            '<div class="order-customer-name">{}</div>'
+            '<div>{}</div><div>{}</div>'
+            '<small>Account: {}</small>',
+            order.full_name,
+            order.phone,
+            order.email,
+            order.user.get_username(),
+        )
+
+    @admin.display(description="Items")
+    def order_items_summary(self, order):
+        items = format_html_join(
+            "",
+            '<div class="order-item-summary"><span>{}</span>'
+            '<small>Qty: {}</small></div>',
+            (
+                (item.product_name, item.quantity)
+                for item in order.items.all()
+            ),
+        )
+        return items or format_html(
+            '<span class="order-empty-note">{}</span>',
+            "No items recorded",
+        )
+
+    @admin.display(description="Delivery destination")
+    def delivery_location(self, order):
+        if order.location_latitude is None or order.location_longitude is None:
+            return format_html(
+                '<div class="order-delivery-address">{}</div>'
+                '<small class="order-location-note">GPS pin not provided</small>',
+                order.address,
+            )
+
+        map_url = (
+            "https://www.google.com/maps/search/?api=1&query="
+            f"{order.location_latitude},{order.location_longitude}"
+        )
+        return format_html(
+            '<div class="order-delivery-address">{}</div>'
+            '<a class="order-map-link" href="{}" target="_blank" '
+            'rel="noopener noreferrer">Open delivery map ↗</a>'
+            '<small class="order-location-note">{}, {}</small>',
+            order.address,
+            map_url,
+            order.location_latitude,
+            order.location_longitude,
+        )
+
+    @admin.display(description="Map")
+    def delivery_map_link(self, order):
+        if order.location_latitude is None or order.location_longitude is None:
+            return "GPS pin not provided"
+
+        map_url = (
+            "https://www.google.com/maps/search/?api=1&query="
+            f"{order.location_latitude},{order.location_longitude}"
+        )
+        return format_html(
+            '<a class="order-map-link" href="{}" target="_blank" '
+            'rel="noopener noreferrer">Open delivery map ↗</a>',
+            map_url,
+        )
+
+    @admin.display(description="Order status", ordering="status")
+    def order_status_display(self, order):
+        return format_html(
+            '<span class="order-status-badge">{}</span>',
+            order.get_status_display(),
+        )
+
+    @admin.display(description="Payment method", ordering="payment_method")
+    def payment_method_display(self, order):
+        return order.get_payment_method_display()
+
+    @admin.display(description="Payment status", ordering="payment_status")
+    def payment_status_display(self, order):
+        return format_html(
+            '<span class="payment-status-badge">{}</span>',
+            order.get_payment_status_display(),
+        )
+
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
-        if obj and not obj.next_status:
+        if not self.has_change_permission(request, obj) or (
+            obj and not obj.next_status
+        ):
             readonly_fields.append("status")
         return readonly_fields
 

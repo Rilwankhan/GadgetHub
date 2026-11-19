@@ -69,6 +69,10 @@ def fetch_payment(payment_id):
     return _api_request(f"payments/{quote(payment_id, safe='')}")
 
 
+def fetch_order_payments(order_id):
+    return _api_request(f"orders/{quote(order_id, safe='')}/payments")
+
+
 def verify_signature(order_id, payment_id, signature):
     message = f"{order_id}|{payment_id}".encode("utf-8")
     expected_signature = hmac.new(

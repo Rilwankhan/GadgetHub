@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261118-4">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261119-3">
 </head>
 <body class="storefront">
     {% include "home/includes/store_header.html" with show_cart=True %}
@@ -18,17 +18,17 @@
     <main>
         <section class="hero-section">
             <div class="hero-copy">
-                <p class="eyebrow"><span class="eyebrow-line"></span> A LITTLE MORE GADGET. A LOT MORE YOU.</p>
-                <h1>Good tech.<br><span>Better everyday.</span></h1>
+                <p class="eyebrow"><span class="eyebrow-line"></span> EVERYDAY TECH, THOUGHTFULLY CHOSEN</p>
+                <h1>Upgrade Your<br><span>Digital World</span></h1>
                 <p class="hero-description">
-                    Find the devices that make work flow, music hit different, and your everyday feel a little easier.
+                    Discover considered gadgets that make work smoother, music richer, and daily life a little easier.
                 </p>
                 <div class="hero-actions">
                     <a href="#products" class="button button-primary">Explore the collection <span aria-hidden="true">↗</span></a>
-                    <a href="#about" class="text-link">Get to know us <span aria-hidden="true">→</span></a>
+                    <a href="#about" class="text-link">Meet GadgetHub <span aria-hidden="true">→</span></a>
                 </div>
                 <div class="hero-note">
-                    <span class="hero-note-icon" aria-hidden="true">✦</span>
+                    
                     <span>Good picks. Straightforward help. No tech-speak.</span>
                 </div>
             </div>
@@ -36,14 +36,15 @@
                 <div class="hero-image-frame">
                     <img
                         class="hero-image"
-                        src="https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=1400&q=88"
+                        src="static/image/Hero_image.png"
                         alt="A curated collection of modern electronic devices">
+                    <span class="hero-image-label"><span></span> THE GADGETHUB EDIT</span>
                 </div>
-                <div class="hero-sticker">
-                    <span class="sticker-star" aria-hidden="true">✳</span>
-                    <span>MAKE EVERYDAY<br>FEEL A LITTLE<br><strong>MORE CLEVER.</strong></span>
+                <div class="hero-feature-card">
+                    <p>MADE FOR REAL LIFE</p>
+                    <strong>Smart choices.<br>Everyday joy.</strong>
                 </div>
-                <div class="hero-image-caption"><span></span> Your next favourite thing is here</div>
+                <div class="hero-image-caption"><span></span> Useful tech, selected with care</div>
             </div>
         </section>
 
@@ -93,7 +94,7 @@
         <section class="story-section" id="about">
             <div class="story-image-wrap">
                 <img
-                    src="https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=85"
+                    src="static/image/Tech_connect.png"
                     alt="A team working together with technology">
                 <span class="story-image-label">TECH SHOULD FEEL LIKE THIS.</span>
             </div>
@@ -109,7 +110,6 @@
         </section>
 
         <section class="contact-section" id="contact">
-            <div class="contact-orbit" aria-hidden="true">✳</div>
             <p class="eyebrow">NEED A HAND?</p>
             <h2>Good questions deserve<br><span>good answers.</span></h2>
             <p>Not sure what’s right for you? Tell us what you’re looking for and we’ll help you figure it out.</p>
@@ -123,8 +123,7 @@
         <div class="footer-main">
             <div class="footer-brand">
                 <a href="#home" class="logo" aria-label="GadgetHub home">
-                    <span class="logo-mark">g</span>
-                    <span class="logo-word">gadget<span>hub</span></span>
+                    <span class="logo-word">Gadget<span>Hub</span></span>
                 </a>
                 <p>Thoughtful tech for the way you live, work, and play.</p>
             </div>
@@ -173,30 +172,42 @@
 
             <form id="checkout-form">
                 {% csrf_token %}
+                <section class="checkout-contact" aria-labelledby="checkout-contact-title">
+                    <div class="checkout-contact-heading">
+                        <div>
+                            <h3 id="checkout-contact-title">Your saved delivery details</h3>
+                            <p>We’ll use the personal details saved in your account.</p>
+                        </div>
+                        {% if user.is_authenticated %}
+                            <a href="{% url 'account' %}">Edit details</a>
+                        {% endif %}
+                    </div>
+                    {% if user.is_authenticated %}
+                        <dl>
+                            <div><dt>Name</dt><dd>{{ customer_name|default:"Not provided" }}</dd></div>
+                            <div><dt>Email</dt><dd>{{ customer_email|default:"Not provided" }}</dd></div>
+                            <div><dt>Mobile</dt><dd>{{ customer_mobile|default:"Not provided" }}</dd></div>
+                            <div><dt>Address</dt><dd>{{ customer_address|default:"Not provided" }}</dd></div>
+                        </dl>
+                        {% if not checkout_ready %}
+                            <p class="checkout-profile-warning">
+                                Add your name, email, mobile number, and delivery address to Personal Details before ordering.
+                            </p>
+                        {% endif %}
+                    {% else %}
+                        <p>Sign in or create an account to continue. Your bag will be saved while you sign in.</p>
+                    {% endif %}
+                </section>
+
                 <div class="checkout-fields">
-                    <div class="form-field">
-                        <label for="customer-name">Full name</label>
-                        <input id="customer-name" name="name" type="text" autocomplete="name" placeholder="Your name" value="{% if user.is_authenticated %}{{ user.get_full_name|default:user.username }}{% endif %}" required>
-                    </div>
-                    <div class="form-field">
-                        <label for="customer-email">Email address</label>
-                        <input id="customer-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" value="{% if user.is_authenticated %}{{ user.email }}{% endif %}" required>
-                    </div>
-                    <div class="form-field full-width">
-                        <label for="customer-mobile">Mobile number</label>
-                        <input id="customer-mobile" name="mobile" type="tel" inputmode="tel" autocomplete="tel" pattern="[0-9+() -]{7,20}" title="Enter a valid phone number." placeholder="+91 98765 43210" required>
-                    </div>
-                    <div class="form-field full-width">
-                        <label for="customer-address">Delivery address</label>
-                        <textarea id="customer-address" name="address" autocomplete="street-address" rows="3" placeholder="House / street, area, city, state and PIN code" required></textarea>
-                    </div>
                     <div class="form-field full-width">
                         <label for="payment-method">Payment preference</label>
                         <select id="payment-method" name="payment_method">
                             <option value="cash_on_delivery">Cash on delivery</option>
-                            <option value="arrange_with_store">Arrange with the store</option>
                             {% if razorpay_enabled %}
                                 <option value="razorpay">Pay online with Razorpay</option>
+                            {% else %}
+                                <option value="razorpay" disabled>Pay online with Razorpay (temporarily unavailable)</option>
                             {% endif %}
                         </select>
                     </div>
@@ -217,16 +228,20 @@
                     <div class="checkout-summary-total" id="checkout-summary-total"></div>
                 </div>
                 <p class="checkout-note">
-                    Your order will be saved to your account.
+                    Your order will use the details saved to your account.
                     {% if razorpay_enabled %}
                         For online payments, available methods are shown securely by Razorpay Checkout.
                     {% else %}
-                        Online payment is not available; the store will confirm payment details.
+                        Razorpay is temporarily unavailable. Choose cash on delivery or try again later.
                     {% endif %}
                 </p>
                 <div class="checkout-actions">
                     <button class="checkout-cancel" type="button" onclick="backToCart()">Back to bag</button>
-                    <button class="checkout-button" type="submit">Place your order <span aria-hidden="true">→</span></button>
+                    <button
+                        class="checkout-button"
+                        type="submit"
+                        {% if user.is_authenticated and not checkout_ready %}disabled{% endif %}
+                    >Place your order <span aria-hidden="true">→</span></button>
                 </div>
                 <p class="order-status" id="order-status" aria-live="polite"></p>
             </form>
@@ -237,8 +252,13 @@
     <script
         id="store-config"
         data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}"
-        data-login-url="{% url 'login' %}?next={{ request.path|urlencode }}"
+        data-login-url="{% url 'login' %}?next={{ '/?checkout=1'|urlencode }}"
         data-account-url="{% url 'account' %}"
+        data-checkout-ready="{{ checkout_ready|yesno:'true,false' }}"
+        data-customer-name="{{ customer_name }}"
+        data-customer-email="{{ customer_email }}"
+        data-customer-mobile="{{ customer_mobile }}"
+        data-customer-address="{{ customer_address }}"
         data-place-order-url="{% url 'place_order' %}"
         data-razorpay-enabled="{{ razorpay_enabled|yesno:'true,false' }}"
         data-razorpay-key-id="{{ razorpay_key_id }}"
@@ -248,6 +268,6 @@
     {% if razorpay_enabled %}
         <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     {% endif %}
-    <script src="{% static 'home/script.js' %}?v=20261118-3"></script>
+    <script src="{% static 'home/script.js' %}?v=20261119-1"></script>
 </body>
 </html>

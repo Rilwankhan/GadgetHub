@@ -63,6 +63,16 @@ urlpatterns = [
     path("account/", views.account, name="account"),
     path("orders/tracking/", views.order_tracking, name="order_tracking"),
     path("orders/<int:order_id>/cancel/", views.cancel_order, name="cancel_order"),
+    path(
+        "orders/<int:order_id>/receipt/",
+        views.payment_receipt,
+        name="payment_receipt",
+    ),
+    path(
+        "orders/<int:order_id>/delete/",
+        views.delete_cancelled_order,
+        name="delete_cancelled_order",
+    ),
     path("orders/create/", views.place_order, name="place_order"),
     path(
         "payments/razorpay/verify/",

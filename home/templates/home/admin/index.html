@@ -9,18 +9,20 @@
                 <th scope="row"><a href="{% url 'admin:auth_user_changelist' %}">User accounts</a></th>
                 <td>{{ store_summary.user_count }}</td>
             </tr>
-            <tr>
-                <th scope="row"><a href="{% url 'admin:home_order_changelist' %}">Orders</a></th>
-                <td>{{ store_summary.order_count }}</td>
-            </tr>
-            <tr>
-                <th scope="row"><a href="{% url 'admin:home_order_changelist' %}?status=pending">Pending orders</a></th>
-                <td>{{ store_summary.pending_order_count }}</td>
-            </tr>
-            <tr>
-                <th scope="row"><a href="{% url 'admin:order_updates' %}">Update order statuses</a></th>
-                <td>Confirm, ship, and deliver orders</td>
-            </tr>
+            {% if can_view_orders %}
+                <tr>
+                    <th scope="row"><a href="{% url 'admin:home_order_changelist' %}">Orders</a></th>
+                    <td>{{ store_summary.order_count }}</td>
+                </tr>
+                <tr>
+                    <th scope="row"><a href="{% url 'admin:home_order_changelist' %}?status=pending">Pending orders</a></th>
+                    <td>{{ store_summary.pending_order_count }}</td>
+                </tr>
+                <tr>
+                    <th scope="row"><a href="{% url 'admin:order_updates' %}">Update order statuses</a></th>
+                    <td>Confirm, ship, and deliver orders</td>
+                </tr>
+            {% endif %}
             <tr>
                 <th scope="row"><a href="{% url 'admin:home_product_changelist' %}">Products</a></th>
                 <td>{{ store_summary.product_count }} total / {{ store_summary.active_product_count }} active</td>
@@ -29,25 +31,44 @@
                 <th scope="row"><a href="{% url 'admin:home_category_changelist' %}">Categories</a></th>
                 <td>{{ store_summary.category_count }}</td>
             </tr>
-            <tr>
-                <th scope="row"><a href="{% url 'admin:home_paymenttransaction_changelist' %}">Razorpay transactions</a></th>
-                <td>{{ store_summary.razorpay_payment_count }}</td>
-            </tr>
-            <tr>
-                <th scope="row"><a href="{% url 'admin:home_paymenttransaction_changelist' %}?status=failed">Failed payments</a></th>
-                <td>{{ store_summary.failed_payment_count }}</td>
-            </tr>
-            <tr>
-                <th scope="row">Paid order total</th>
-                <td>₹{{ store_summary.paid_total|floatformat:2 }}</td>
-            </tr>
-            <tr>
-                <th scope="row">Outstanding order total</th>
-                <td>₹{{ store_summary.outstanding_total|floatformat:2 }}</td>
-            </tr>
+            {% if can_view_orders %}
+                <tr>
+                    <th scope="row"><a href="{% url 'admin:home_paymenttransaction_changelist' %}">Razorpay transactions</a></th>
+                    <td>{{ store_summary.razorpay_payment_count }}</td>
+                </tr>
+                <tr>
+                    <th scope="row"><a href="{% url 'admin:home_paymenttransaction_changelist' %}?status=failed">Failed payments</a></th>
+                    <td>{{ store_summary.failed_payment_count }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Paid order total</th>
+                    <td>₹{{ store_summary.paid_total|floatformat:2 }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Outstanding order total</th>
+                    <td>₹{{ store_summary.outstanding_total|floatformat:2 }}</td>
+                </tr>
+            {% endif %}
         </tbody>
     </table>
 </div>
+{% if can_view_orders %}
+    <div class="module">
+        <h2>Monthly sales report</h2>
+        <p>Download order, payment, and cancellation totals for a selected month.</p>
+        <form method="get" action="{% url 'admin:monthly_sales_report' %}">
+            <label for="sales-report-month">Report month</label>
+            <input
+                id="sales-report-month"
+                type="month"
+                name="month"
+                value="{{ store_summary.current_month }}"
+                required
+            >
+            <button type="submit">Download PDF</button>
+        </form>
+    </div>
+{% endif %}
 <div class="module">
     <h2>Your account</h2>
     <p><a href="{% url 'account' %}">Update your admin profile and employee details</a></p>

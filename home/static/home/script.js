@@ -7,6 +7,13 @@ window.GADGETHUB = {
     loginUrl: storeConfig.loginUrl,
     accountUrl: storeConfig.accountUrl,
     placeOrderUrl: storeConfig.placeOrderUrl,
+    checkoutReady: storeConfig.checkoutReady === "true",
+    customerDetails: {
+        name: storeConfig.customerName,
+        email: storeConfig.customerEmail,
+        mobile: storeConfig.customerMobile,
+        address: storeConfig.customerAddress
+    },
     razorpayEnabled: storeConfig.razorpayEnabled === "true",
     razorpayKeyId: storeConfig.razorpayKeyId,
     verifyPaymentUrl: storeConfig.verifyPaymentUrl,
@@ -284,6 +291,10 @@ function openCheckout() {
         alert("Your cart is empty. Add a product before checking out.");
         return;
     }
+    if (!window.GADGETHUB.authenticated) {
+        window.location.href = window.GADGETHUB.loginUrl;
+        return;
+    }
 
     renderCheckoutSummary();
     closeCart();
@@ -476,16 +487,16 @@ function launchRazorpayCheckout(data, details, paymentLabel) {
             const error = response && response.error ? response.error : {};
             status.textContent =
                 error.description || "Payment failed. You can try another method in Razorpay Checkout.";
-            postPaymentUpdate(window.GADGETHUB.failPaymentUrl, {
-                order_id: data.order_id,
-                razorpay_order_id: payment.order_id,
-                error: {
-                    code: error.code || "",
-                    description: error.description || ""
-                }
-            }).catch(updateError => {
-                console.error("Could not save Razorpay payment failure.", updateError);
-            });
+            const paymentId = error.metadata && error.metadata.payment_id;
+            if (paymentId) {
+                postPaymentUpdate(window.GADGETHUB.failPaymentUrl, {
+                    order_id: data.order_id,
+                    razorpay_order_id: payment.order_id,
+                    razorpay_payment_id: paymentId
+                }).catch(updateError => {
+                    console.error("Could not save Razorpay payment failure.", updateError);
+                });
+            }
         });
 
         checkout.open();
@@ -501,22 +512,15 @@ async function submitCheckout(event) {
         return;
     }
 
-    const name = document.getElementById("customer-name").value.trim();
-    const email = document.getElementById("customer-email").value.trim();
-    const mobile = document.getElementById("customer-mobile").value.trim();
-    const address = document.getElementById("customer-address").value.trim();
     const paymentMethod = document.getElementById("payment-method").value;
 
-    if (!name || !email || !mobile || !address) {
-        alert("Please complete your name, email, mobile number, and delivery address.");
+    if (!window.GADGETHUB.authenticated) {
+        window.location.href = window.GADGETHUB.loginUrl;
         return;
     }
-
-    if (!window.GADGETHUB.authenticated) {
-        sessionStorage.setItem("gadgethub-checkout", JSON.stringify({
-            name, email, mobile, address, paymentMethod
-        }));
-        window.location.href = window.GADGETHUB.loginUrl;
+    if (!window.GADGETHUB.checkoutReady) {
+        document.getElementById("order-status").textContent =
+            "Add your name, email, mobile number, and delivery address in Personal Details before ordering.";
         return;
     }
 
@@ -524,7 +528,7 @@ async function submitCheckout(event) {
     const status = document.getElementById("order-status");
     submitButton.disabled = true;
     status.textContent = "Saving your order...";
-    const details = { name, email, mobile, address };
+    const details = window.GADGETHUB.customerDetails;
     const paymentLabel =
         document.getElementById("payment-method").selectedOptions[0].textContent;
     try {
@@ -536,10 +540,6 @@ async function submitCheckout(event) {
                 "X-CSRFToken": document.querySelector("#checkout-form [name=csrfmiddlewaretoken]").value
             },
             body: JSON.stringify({
-                name,
-                email,
-                mobile,
-                address,
                 payment_method: paymentMethod,
                 cart: cart.map(item => ({ id: item.id, quantity: item.quantity })),
                 location: liveLocation
@@ -574,20 +574,6 @@ document.getElementById("checkout-form").addEventListener("submit", submitChecko
 document.getElementById("contact-whatsapp").href =
     getWhatsAppLink("Hello GadgetHub! I need help with your products.");
 
-try {
-    const checkoutDraft = JSON.parse(sessionStorage.getItem("gadgethub-checkout") || "null");
-    if (checkoutDraft) {
-        document.getElementById("customer-name").value = checkoutDraft.name || "";
-        document.getElementById("customer-email").value = checkoutDraft.email || "";
-        document.getElementById("customer-mobile").value = checkoutDraft.mobile || "";
-        document.getElementById("customer-address").value = checkoutDraft.address || "";
-        document.getElementById("payment-method").value = checkoutDraft.paymentMethod || "cash_on_delivery";
-        sessionStorage.removeItem("gadgethub-checkout");
-    }
-} catch (error) {
-    sessionStorage.removeItem("gadgethub-checkout");
-}
-
 document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
         closeCheckout();
@@ -606,4 +592,12 @@ if (requestedOrderId) {
         orderProduct(requestedProduct.id);
         window.history.replaceState({}, "", window.location.pathname + window.location.hash);
     }
+}
+if (new URLSearchParams(window.location.search).get("checkout") === "1") {
+    openCheckout();
+    window.history.replaceState(
+        {},
+        "",
+        window.location.pathname + window.location.hash
+    );
 }

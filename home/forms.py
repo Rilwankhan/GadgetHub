@@ -1,14 +1,47 @@
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
 
 from .models import CustomerProfile
 
 
+class CustomerRegistrationForm(UserCreationForm):
+    first_name = forms.CharField(max_length=150, label="First name")
+    last_name = forms.CharField(max_length=150, label="Last name")
+    email = forms.EmailField()
+    mobile = forms.RegexField(
+        regex=r"^[0-9+() -]{7,30}$",
+        max_length=30,
+        error_messages={"invalid": "Enter a valid mobile number."},
+        label="Mobile number",
+    )
+    address = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 3}),
+        label="Delivery address",
+    )
+
+    class Meta(UserCreationForm.Meta):
+        model = get_user_model()
+        fields = ("username", "first_name", "last_name", "email")
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.first_name = self.cleaned_data["first_name"]
+        user.last_name = self.cleaned_data["last_name"]
+        user.email = self.cleaned_data["email"]
+        if commit:
+            user.save()
+            CustomerProfile.objects.create(
+                user=user,
+                mobile=self.cleaned_data["mobile"],
+                address=self.cleaned_data["address"],
+            )
+        return user
+
+
 class AdminProfileForm(forms.Form):
     username = forms.CharField(max_length=150)
-    first_name = forms.CharField(max_length=150, required=False, label="First name")
-    last_name = forms.CharField(max_length=150, required=False, label="Last name")
     email = forms.EmailField()
     employee_id = forms.CharField(max_length=50, label="Employee ID")
     mobile = forms.RegexField(
@@ -18,25 +51,15 @@ class AdminProfileForm(forms.Form):
         error_messages={"invalid": "Enter a valid mobile number."},
         label="Mobile number",
     )
-    address = forms.CharField(
-        required=False,
-        label="Address",
-        widget=forms.Textarea(attrs={"rows": 3}),
-    )
-    landmark = forms.CharField(max_length=160, required=False)
 
     def __init__(self, *args, user, profile, **kwargs):
         self.user = user
         self.profile = profile
         initial = kwargs.setdefault("initial", {})
         initial.setdefault("username", user.username)
-        initial.setdefault("first_name", user.first_name)
-        initial.setdefault("last_name", user.last_name)
         initial.setdefault("email", user.email)
         initial.setdefault("employee_id", profile.employee_id)
         initial.setdefault("mobile", profile.mobile)
-        initial.setdefault("address", profile.address)
-        initial.setdefault("landmark", profile.landmark)
         super().__init__(*args, **kwargs)
 
     def clean_username(self):
@@ -55,19 +78,11 @@ class AdminProfileForm(forms.Form):
 
     def save(self):
         self.user.username = self.cleaned_data["username"]
-        self.user.first_name = self.cleaned_data["first_name"]
-        self.user.last_name = self.cleaned_data["last_name"]
         self.user.email = self.cleaned_data["email"]
-        self.user.save(
-            update_fields=["username", "first_name", "last_name", "email"]
-        )
+        self.user.save(update_fields=["username", "email"])
         self.profile.employee_id = self.cleaned_data["employee_id"]
         self.profile.mobile = self.cleaned_data["mobile"]
-        self.profile.address = self.cleaned_data["address"]
-        self.profile.landmark = self.cleaned_data["landmark"]
-        self.profile.save(
-            update_fields=["employee_id", "mobile", "address", "landmark"]
-        )
+        self.profile.save(update_fields=["employee_id", "mobile"])
         return self.profile
 
 

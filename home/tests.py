@@ -7,6 +7,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -14,6 +15,7 @@ from django.utils import timezone
 
 from .models import (
     Category,
+    CustomerProfile,
     Order,
     OrderItem,
     OrderTrackingEvent,
@@ -25,7 +27,16 @@ from .models import (
 class StorefrontOrderTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
-            username="customer", password="StrongPassword123!"
+            username="customer",
+            password="StrongPassword123!",
+            first_name="Test",
+            last_name="Customer",
+            email="customer@example.com",
+        )
+        CustomerProfile.objects.create(
+            user=self.user,
+            mobile="+91 98765 43210",
+            address="1 Saved Street",
         )
         self.category, _ = Category.objects.get_or_create(name="Audio")
         self.product = Product.objects.create(
@@ -63,10 +74,18 @@ class StorefrontOrderTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+        self.assertIn("next=%2F%3Fcheckout%3D1", response.url)
         self.assertFalse(Order.objects.exists())
 
     def test_order_uses_database_price_and_is_listed_only_for_its_account(self):
         self.client.force_login(self.user)
+        self.order_payload.update(
+            name="Untrusted Checkout Name",
+            email="not-the-account@example.com",
+            mobile="1111111111",
+            address="Untrusted Checkout Address",
+        )
         response = self.client.post(
             reverse("place_order"),
             data=json.dumps(self.order_payload),
@@ -76,6 +95,10 @@ class StorefrontOrderTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["total"], "4998.00")
         order = Order.objects.get(user=self.user)
+        self.assertEqual(order.full_name, "Test Customer")
+        self.assertEqual(order.email, "customer@example.com")
+        self.assertEqual(order.phone, "+91 98765 43210")
+        self.assertEqual(order.address, "1 Saved Street")
         self.assertEqual(order.total, 4998)
         self.assertEqual(order.payment_status, Order.PaymentStatus.UNPAID)
         self.assertEqual(order.items.get().unit_price, 2499)
@@ -89,6 +112,46 @@ class StorefrontOrderTests(TestCase):
         self.client.force_login(another_user)
         account_response = self.client.get(reverse("account"))
         self.assertNotContains(account_response, "Test Customer")
+
+    def test_cash_on_delivery_order_has_no_payment_receipt(self):
+        self.client.force_login(self.user)
+        order = self.create_order()
+
+        response = self.client.get(
+            reverse("payment_receipt", args=[order.pk])
+        )
+        account_response = self.client.get(reverse("account"))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotContains(account_response, "Download payment receipt")
+
+    @override_settings(RAZORPAY_ENABLED=False)
+    def test_checkout_shows_saved_details_without_customer_entry_fields(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "Your saved delivery details")
+        self.assertContains(response, "1 Saved Street")
+        self.assertNotContains(response, 'id="customer-name"')
+        self.assertNotContains(response, 'id="customer-email"')
+        self.assertNotContains(response, 'id="customer-mobile"')
+        self.assertNotContains(response, 'id="customer-address"')
+        self.assertNotContains(response, "Arrange with the store")
+        self.assertContains(response, 'value="razorpay" disabled')
+
+    def test_arrange_with_store_is_no_longer_an_available_payment_method(self):
+        self.client.force_login(self.user)
+        self.order_payload["payment_method"] = Order.PaymentMethod.ARRANGE_WITH_STORE
+
+        response = self.client.post(
+            reverse("place_order"),
+            data=json.dumps(self.order_payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Order.objects.exists())
 
     def test_rejects_invalid_quantity_without_creating_order(self):
         self.client.force_login(self.user)
@@ -150,6 +213,45 @@ class StorefrontOrderTests(TestCase):
         self.assertRedirects(response, reverse("account"))
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.SHIPPED)
+
+    def test_only_cancelled_orders_can_be_deleted_by_their_owner(self):
+        self.client.force_login(self.user)
+        cancelled_order = self.create_order(status=Order.Status.CANCELLED)
+        active_order = self.create_order()
+        delivered_order = self.create_order(status=Order.Status.DELIVERED)
+        another_user = get_user_model().objects.create_user(
+            username="another", password="StrongPassword123!"
+        )
+        another_cancelled_order = self.create_order(
+            user=another_user, status=Order.Status.CANCELLED
+        )
+
+        self.assertEqual(
+            self.client.post(
+                reverse("delete_cancelled_order", args=[active_order.pk])
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse("delete_cancelled_order", args=[delivered_order.pk])
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse("delete_cancelled_order", args=[another_cancelled_order.pk])
+            ).status_code,
+            404,
+        )
+        response = self.client.post(
+            reverse("delete_cancelled_order", args=[cancelled_order.pk])
+        )
+
+        self.assertRedirects(response, reverse("account"))
+        self.assertFalse(Order.objects.filter(pk=cancelled_order.pk).exists())
+        self.assertTrue(Order.objects.filter(pk=active_order.pk).exists())
+        self.assertTrue(Order.objects.filter(pk=delivered_order.pk).exists())
 
     def test_user_cannot_cancel_another_users_order_or_read_their_tracking(self):
         self.client.force_login(self.user)
@@ -241,11 +343,51 @@ class StorefrontOrderTests(TestCase):
         self.assertEqual(delivered_order["product_names"], [self.product.name])
         self.assertEqual(delivered_order["delivered_at"], delivered_at.isoformat())
 
+    def test_cancelled_order_uses_confirmation_design_and_shows_both_timestamps(self):
+        self.client.force_login(self.user)
+        order = self.create_order(status=Order.Status.CANCELLED)
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            product_name=self.product.name,
+            unit_price=self.product.price,
+            quantity=1,
+        )
+        booked_at = timezone.now().replace(microsecond=0) - timedelta(days=1)
+        cancelled_at = timezone.now().replace(microsecond=0)
+        order.created_at = booked_at
+        order.save(update_fields=["created_at"])
+        OrderTrackingEvent.objects.create(
+            order=order,
+            status=Order.Status.CANCELLED,
+            description="You cancelled this order.",
+            created_at=cancelled_at,
+        )
+
+        response = self.client.get(reverse("account"))
+
+        self.assertContains(response, self.product.name)
+        self.assertContains(response, "Status: Cancelled")
+        self.assertContains(response, "Booking Date &amp; Time:")
+        self.assertContains(response, "Cancellation Date &amp; Time:")
+        self.assertContains(response, f'datetime="{booked_at.isoformat()}"')
+        self.assertContains(response, f'datetime="{cancelled_at.isoformat()}"')
+        self.assertContains(response, "✕")
+        self.assertContains(response, "Delete Order")
+        self.assertNotContains(response, "Cancel order")
+        tracking_order = self.client.get(reverse("order_tracking")).json()["orders"][0]
+        self.assertEqual(tracking_order["cancelled_at"], cancelled_at.isoformat())
+
     def test_registration_creates_and_logs_in_customer(self):
         response = self.client.post(
             reverse("register"),
             {
                 "username": "newcustomer",
+                "first_name": "New",
+                "last_name": "Customer",
+                "email": "newcustomer@example.com",
+                "mobile": "9876543210",
+                "address": "1 New Street",
                 "password1": "V3ryLongPassword!Test",
                 "password2": "V3ryLongPassword!Test",
             },
@@ -255,6 +397,27 @@ class StorefrontOrderTests(TestCase):
         self.assertTrue(
             get_user_model().objects.filter(username="newcustomer").exists()
         )
+        self.assertTrue(response.wsgi_request.user.is_authenticated)
+        self.assertEqual(response.wsgi_request.user.profile.mobile, "9876543210")
+        self.assertEqual(response.wsgi_request.user.profile.address, "1 New Street")
+
+    def test_registration_continues_to_checkout_when_requested(self):
+        response = self.client.post(
+            reverse("register"),
+            {
+                "username": "checkoutcustomer",
+                "first_name": "Checkout",
+                "last_name": "Customer",
+                "email": "checkout@example.com",
+                "mobile": "9876543210",
+                "address": "1 Checkout Street",
+                "password1": "V3ryLongPassword!Test",
+                "password2": "V3ryLongPassword!Test",
+                "next": "/?checkout=1",
+            },
+        )
+
+        self.assertRedirects(response, "/?checkout=1")
         self.assertTrue(response.wsgi_request.user.is_authenticated)
 
     def test_login_redirects_users_and_admins_to_their_roles(self):
@@ -279,6 +442,18 @@ class StorefrontOrderTests(TestCase):
             {"username": admin_user.username, "password": "StrongPassword123!"},
         )
         self.assertRedirects(response, reverse("admin:index"))
+
+    def test_login_continues_to_checkout_when_requested(self):
+        response = self.client.post(
+            reverse("login"),
+            {
+                "username": "customer",
+                "password": "StrongPassword123!",
+                "next": "/?checkout=1",
+            },
+        )
+
+        self.assertRedirects(response, "/?checkout=1")
 
     def test_regular_user_cannot_open_admin_dashboard(self):
         self.client.force_login(self.user)
@@ -342,6 +517,15 @@ class StorefrontOrderTests(TestCase):
             username="profileadmin",
             email="admin@example.com",
             password="StrongPassword123!",
+            first_name="Admin",
+            last_name="Operator",
+        )
+        CustomerProfile.objects.create(
+            user=admin_user,
+            employee_id="GH-1001",
+            mobile="+91 98765 43210",
+            address="Staff-only address",
+            landmark="Staff-only landmark",
         )
         self.client.force_login(admin_user)
 
@@ -350,6 +534,10 @@ class StorefrontOrderTests(TestCase):
         self.assertContains(response, "Personal Details")
         self.assertContains(response, "Admin Profile")
         self.assertContains(response, "Employee ID")
+        self.assertNotContains(response, "First name")
+        self.assertNotContains(response, "Last name")
+        self.assertNotContains(response, "Address")
+        self.assertNotContains(response, "Landmark")
         self.assertContains(response, 'aria-expanded="false"')
         self.assertNotContains(response, "Your GadgetHub History")
         self.assertRegex(
@@ -379,13 +567,13 @@ class StorefrontOrderTests(TestCase):
         self.assertRedirects(response, reverse("account"))
         admin_user.refresh_from_db()
         self.assertEqual(admin_user.username, "updatedadmin")
-        self.assertEqual(admin_user.first_name, "Store")
-        self.assertEqual(admin_user.last_name, "Manager")
+        self.assertEqual(admin_user.first_name, "Admin")
+        self.assertEqual(admin_user.last_name, "Operator")
         self.assertEqual(admin_user.email, "updated-admin@example.com")
         self.assertEqual(admin_user.profile.employee_id, "GH-1042")
         self.assertEqual(admin_user.profile.mobile, "+91 98765 43210")
-        self.assertEqual(admin_user.profile.address, "42 Example Road")
-        self.assertEqual(admin_user.profile.landmark, "Near the clock tower")
+        self.assertEqual(admin_user.profile.address, "Staff-only address")
+        self.assertEqual(admin_user.profile.landmark, "Staff-only landmark")
 
     def test_profile_edit_form_reopens_when_customer_input_is_invalid(self):
         self.client.force_login(self.user)
@@ -504,6 +692,14 @@ class RazorpayPaymentTests(TestCase):
         self.user = get_user_model().objects.create_user(
             username="paymentcustomer",
             password="StrongPassword123!",
+            first_name="Payment",
+            last_name="Customer",
+            email="payment@example.com",
+        )
+        CustomerProfile.objects.create(
+            user=self.user,
+            mobile="9876543210",
+            address="1 Payment Street",
         )
         self.category = Category.objects.create(name="Payment Audio")
         self.product = Product.objects.create(
@@ -639,6 +835,66 @@ class RazorpayPaymentTests(TestCase):
             "order_id": "order_test123",
             "amount": 499800,
             "currency": "INR",
+            "status": "captured",
+            "captured": True,
+        },
+    )
+    def test_verified_razorpay_payment_can_download_receipt(self, _fetch):
+        result = self.create_pending_payment()
+        order_id = result["order_id"]
+        verify_response = self.client.post(
+            reverse("verify_razorpay_payment"),
+            data=json.dumps(self.verify_payload(order_id)),
+            content_type="application/json",
+        )
+
+        self.assertEqual(verify_response.status_code, 200)
+        receipt = self.client.get(reverse("payment_receipt", args=[order_id]))
+        account_response = self.client.get(reverse("account"))
+
+        self.assertEqual(receipt.status_code, 200)
+        self.assertEqual(receipt["Content-Type"], "application/pdf")
+        self.assertIn("private", receipt["Cache-Control"])
+        self.assertIn("no-store", receipt["Cache-Control"])
+        self.assertEqual(
+            receipt["Content-Disposition"],
+            f'attachment; filename="GadgetHub-Receipt-Order-{order_id}.pdf"',
+        )
+        self.assertTrue(receipt.content.startswith(b"%PDF-"))
+        self.assertNotIn(b"test_secret", receipt.content)
+        self.assertContains(
+            account_response,
+            reverse("payment_receipt", args=[order_id]),
+        )
+
+        another_user = get_user_model().objects.create_user(
+            username="receiptother",
+            password="StrongPassword123!",
+        )
+        self.client.force_login(another_user)
+        self.assertEqual(
+            self.client.get(reverse("payment_receipt", args=[order_id])).status_code,
+            404,
+        )
+
+    def test_unpaid_razorpay_order_has_no_receipt(self):
+        result = self.create_pending_payment()
+
+        response = self.client.get(
+            reverse("payment_receipt", args=[result["order_id"]])
+        )
+        account_response = self.client.get(reverse("account"))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotContains(account_response, "Download payment receipt")
+
+    @patch(
+        "home.views.fetch_razorpay_payment",
+        return_value={
+            "id": "pay_test123",
+            "order_id": "order_test123",
+            "amount": 499800,
+            "currency": "INR",
             "status": "authorized",
             "captured": False,
         },
@@ -709,7 +965,11 @@ class RazorpayPaymentTests(TestCase):
         self.assertEqual(payment.status, PaymentTransaction.Status.FAILED)
         self.assertEqual(payment.error_code, "PAYMENT_FAILED")
 
-    def test_cancelled_checkout_is_saved_and_owner_scoped(self):
+    @patch(
+        "home.views.fetch_razorpay_order_payments",
+        return_value={"items": []},
+    )
+    def test_cancelled_checkout_is_saved_and_owner_scoped(self, _fetch_payments):
         result = self.create_pending_payment()
         order_id = result["order_id"]
         another_user = get_user_model().objects.create_user(
@@ -746,6 +1006,147 @@ class RazorpayPaymentTests(TestCase):
             PaymentTransaction.Status.CANCELLED,
         )
 
+    @patch(
+        "home.views.fetch_razorpay_order_payments",
+        return_value={
+            "items": [
+                {
+                    "id": "pay_failed123",
+                    "order_id": "order_test123",
+                    "amount": 499800,
+                    "currency": "INR",
+                    "status": "failed",
+                    "error_code": "PAYMENT_FAILED",
+                    "error_description": "Payment declined.",
+                }
+            ]
+        },
+    )
+    def test_closed_checkout_records_provider_confirmed_failure(self, _fetch_payments):
+        result = self.create_pending_payment()
+        response = self.client.post(
+            reverse("cancel_razorpay_payment"),
+            data=json.dumps(
+                {
+                    "order_id": result["order_id"],
+                    "razorpay_order_id": "order_test123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["payment_status"], PaymentTransaction.Status.FAILED)
+        order = Order.objects.get(pk=result["order_id"])
+        payment = order.payment_transactions.get()
+        self.assertEqual(order.payment_status, Order.PaymentStatus.FAILED)
+        self.assertEqual(payment.status, PaymentTransaction.Status.FAILED)
+        self.assertEqual(payment.razorpay_payment_id, "pay_failed123")
+
+    @patch(
+        "home.views.fetch_razorpay_order_payments",
+        return_value={
+            "items": [
+                {
+                    "id": "pay_pending123",
+                    "order_id": "order_test123",
+                    "status": "authorized",
+                }
+            ]
+        },
+    )
+    def test_checkout_cannot_be_cancelled_while_payment_is_authorized(
+        self, _fetch_payments
+    ):
+        result = self.create_pending_payment()
+        response = self.client.post(
+            reverse("cancel_razorpay_payment"),
+            data=json.dumps(
+                {
+                    "order_id": result["order_id"],
+                    "razorpay_order_id": "order_test123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        order = Order.objects.get(pk=result["order_id"])
+        self.assertEqual(order.payment_status, Order.PaymentStatus.PENDING)
+        self.assertEqual(
+            order.payment_transactions.get().status,
+            PaymentTransaction.Status.CREATED,
+        )
+
+    @patch(
+        "home.views.fetch_razorpay_payment",
+        return_value={
+            "id": "pay_test123",
+            "order_id": "order_test123",
+            "amount": 499800,
+            "currency": "INR",
+            "status": "captured",
+            "captured": True,
+        },
+    )
+    def test_client_cannot_mark_a_payment_failed_without_provider_confirmation(
+        self, _fetch_payment
+    ):
+        result = self.create_pending_payment()
+        response = self.client.post(
+            reverse("fail_razorpay_payment"),
+            data=json.dumps(
+                {
+                    "order_id": result["order_id"],
+                    "razorpay_order_id": "order_test123",
+                    "razorpay_payment_id": "pay_test123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        order = Order.objects.get(pk=result["order_id"])
+        self.assertEqual(order.payment_status, Order.PaymentStatus.PENDING)
+        self.assertEqual(
+            order.payment_transactions.get().status,
+            PaymentTransaction.Status.CREATED,
+        )
+
+    @patch(
+        "home.views.fetch_razorpay_payment",
+        return_value={
+            "id": "pay_test123",
+            "order_id": "order_test123",
+            "amount": 499800,
+            "currency": "INR",
+            "status": "failed",
+            "captured": False,
+            "error_code": "PAYMENT_FAILED",
+            "error_description": "Payment was declined.",
+        },
+    )
+    def test_provider_confirmed_failure_is_saved(self, _fetch_payment):
+        result = self.create_pending_payment()
+        response = self.client.post(
+            reverse("fail_razorpay_payment"),
+            data=json.dumps(
+                {
+                    "order_id": result["order_id"],
+                    "razorpay_order_id": "order_test123",
+                    "razorpay_payment_id": "pay_test123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        order = Order.objects.get(pk=result["order_id"])
+        payment = order.payment_transactions.get()
+        self.assertEqual(order.payment_status, Order.PaymentStatus.FAILED)
+        self.assertEqual(payment.status, PaymentTransaction.Status.FAILED)
+        self.assertEqual(payment.razorpay_payment_id, "pay_test123")
+
 
 class GadgetHubAdminTests(TestCase):
     def setUp(self):
@@ -777,6 +1178,73 @@ class GadgetHubAdminTests(TestCase):
         self.assertContains(response, reverse("admin:order_updates"))
         self.assertContains(response, reverse("admin:home_product_changelist"))
         self.assertContains(response, reverse("admin:home_category_changelist"))
+        self.assertContains(response, reverse("admin:monthly_sales_report"))
+        self.assertContains(response, 'type="month"')
+
+    def test_admin_can_download_monthly_sales_pdf_for_selected_month(self):
+        month = timezone.localdate().strftime("%Y-%m")
+
+        response = self.client.get(
+            reverse("admin:monthly_sales_report"),
+            {"month": month},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertEqual(
+            response["Content-Disposition"],
+            f'attachment; filename="gadgethub-monthly-sales-{month}.pdf"',
+        )
+        self.assertTrue(b"".join(response.streaming_content).startswith(b"%PDF-"))
+
+    def test_monthly_sales_report_rejects_invalid_month(self):
+        response = self.client.get(
+            reverse("admin:monthly_sales_report"),
+            {"month": "not-a-month"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_admin_can_download_individual_order_pdf_only_from_orders_section(self):
+        item = OrderItem.objects.create(
+            order=self.order,
+            product=self.product,
+            product_name=self.product.name,
+            unit_price=self.product.price,
+            quantity=2,
+        )
+        user_list = self.client.get(reverse("admin:auth_user_changelist"))
+        order_list = self.client.get(reverse("admin:home_order_changelist"))
+        change_page = self.client.get(
+            reverse("admin:home_order_change", args=[self.order.pk])
+        )
+        response = self.client.get(
+            reverse("admin:order_details_pdf", args=[self.order.pk])
+        )
+
+        self.assertNotContains(user_list, "Download PDF")
+        self.assertContains(
+            order_list,
+            reverse("admin:order_details_pdf", args=[self.order.pk]),
+        )
+        self.assertContains(
+            order_list,
+            "Download Order Details (PDF)",
+        )
+        self.assertContains(
+            change_page,
+            reverse("admin:order_details_pdf", args=[self.order.pk]),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertEqual(
+            response["Content-Disposition"],
+            f'attachment; filename="gadgethub-order-{self.order.pk}.pdf"',
+        )
+        self.assertTrue(b"".join(response.streaming_content).startswith(b"%PDF-"))
+        self.assertEqual(item.quantity, 2)
 
     def test_admin_can_open_order_status_updates_page(self):
         response = self.client.get(reverse("admin:order_updates"))
@@ -788,6 +1256,123 @@ class GadgetHubAdminTests(TestCase):
             response,
             reverse("admin:order_advance", args=[self.order.pk]),
         )
+
+    def test_order_changelist_summarizes_customer_items_and_delivery_location(self):
+        self.order.location_latitude = 40.7128
+        self.order.location_longitude = -74.006
+        self.order.payment_method = Order.PaymentMethod.RAZORPAY
+        self.order.payment_status = Order.PaymentStatus.PAID
+        self.order.save(
+            update_fields=[
+                "location_latitude",
+                "location_longitude",
+                "payment_method",
+                "payment_status",
+            ]
+        )
+        OrderItem.objects.create(
+            order=self.order,
+            product=self.product,
+            product_name=self.product.name,
+            unit_price=self.product.price,
+            quantity=2,
+        )
+
+        response = self.client.get(reverse("admin:home_order_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Customer &amp; contact")
+        self.assertContains(response, "Admin Test Order")
+        self.assertContains(response, "9876543210")
+        self.assertContains(response, "admin@example.com")
+        self.assertContains(response, "Wireless Headphones")
+        self.assertContains(response, "1 Admin Street")
+        self.assertContains(response, "Open delivery map")
+        self.assertContains(response, "40.7128,-74.006")
+        self.assertContains(response, "Payment status")
+        self.assertContains(response, "Paid")
+        self.assertContains(response, "home/admin_orders.css")
+
+    def test_order_items_are_read_only_and_cannot_be_added_from_order_admin(self):
+        OrderItem.objects.create(
+            order=self.order,
+            product=self.product,
+            product_name=self.product.name,
+            unit_price=self.product.price,
+            quantity=1,
+        )
+
+        response = self.client.get(
+            reverse("admin:home_order_change", args=[self.order.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.product.name)
+        self.assertNotContains(response, 'class="add-row"')
+        self.assertNotContains(response, 'name="items-0-quantity"')
+        self.assertNotContains(response, 'name="items-0-product"')
+
+    def test_staff_without_order_permissions_cannot_access_order_actions_or_reports(self):
+        staff_user = get_user_model().objects.create_user(
+            username="restrictedstaff",
+            password="StrongPassword123!",
+            is_staff=True,
+        )
+        self.client.force_login(staff_user)
+        paths = [
+            reverse("admin:home_order_changelist"),
+            reverse("admin:home_order_change", args=[self.order.pk]),
+            reverse("admin:order_updates"),
+            reverse("admin:monthly_sales_report"),
+            reverse("admin:order_details_pdf", args=[self.order.pk]),
+        ]
+
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 403)
+
+        dashboard = self.client.get(reverse("admin:index"))
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertNotContains(
+            dashboard,
+            reverse("admin:monthly_sales_report"),
+        )
+
+        response = self.client.post(
+            reverse("admin:order_advance", args=[self.order.pk]),
+            {"expected_status": Order.Status.PENDING},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PENDING)
+
+    def test_view_only_staff_cannot_update_order_status(self):
+        staff_user = get_user_model().objects.create_user(
+            username="viewonlystaff",
+            password="StrongPassword123!",
+            is_staff=True,
+        )
+        view_order_permission = Permission.objects.get(
+            content_type__app_label="home",
+            codename="view_order",
+        )
+        staff_user.user_permissions.add(view_order_permission)
+        self.client.force_login(staff_user)
+
+        change_page = self.client.get(
+            reverse("admin:home_order_change", args=[self.order.pk])
+        )
+        response = self.client.post(
+            reverse("admin:order_advance", args=[self.order.pk]),
+            {"expected_status": Order.Status.PENDING},
+        )
+
+        self.assertEqual(change_page.status_code, 200)
+        self.assertNotContains(change_page, 'name="status"')
+        self.assertEqual(response.status_code, 403)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PENDING)
 
     def test_admin_can_open_user_order_and_catalog_management(self):
         paths = [
@@ -843,11 +1428,18 @@ class GadgetHubAdminTests(TestCase):
         self.assertEqual(product.original_price, 1500)
 
     def test_admin_can_only_advance_delivery_status_and_cannot_edit_payment_status(self):
+        self.order.location_latitude = 40.7128
+        self.order.location_longitude = -74.006
+        self.order.save(update_fields=["location_latitude", "location_longitude"])
         change_url = reverse("admin:home_order_change", args=[self.order.pk])
         change_page = self.client.get(change_url)
 
         self.assertEqual(change_page.status_code, 200)
         self.assertContains(change_page, "Order status / tracking")
+        self.assertContains(change_page, "Customer &amp; contact")
+        self.assertContains(change_page, "Delivery destination")
+        self.assertContains(change_page, "Order &amp; payment")
+        self.assertContains(change_page, "Open delivery map")
         self.assertContains(change_page, "Payment status")
         self.assertNotContains(change_page, 'name="payment_method"')
         self.assertNotContains(change_page, 'name="payment_status"')

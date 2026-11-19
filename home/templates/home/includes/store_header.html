@@ -1,3 +1,4 @@
+{% load static %}
 <div class="announcement-bar">
     <span class="announcement-dot"></span>
     <span>Good tech, made easy.</span>
@@ -7,20 +8,19 @@
 
 <header class="navbar site-header" id="home">
     <a href="{% url 'home' %}#home" class="logo" aria-label="GadgetHub home">
-        <span class="logo-mark">g</span>
-        <span class="logo-word">gadget<span>hub</span></span>
+        <span class="logo-word">Gadget<span>Hub</span></span>
     </a>
 
-    <nav class="nav-links" aria-label="Main navigation">
-        <a href="{% url 'home' %}#products">Shop</a>
-        <a href="{% url 'home' %}#about">Our story</a>
-        <a href="{% url 'home' %}#contact">Support</a>
-        {% if not user.is_authenticated %}
-            <a class="mobile-register-link" href="{% url 'register' %}">Join us</a>
-        {% endif %}
-    </nav>
+    <div class="nav-panel" id="header-navigation">
+        <nav class="nav-links" aria-label="Main navigation">
+            <a href="{% url 'home' %}#products">Shop</a>
+            <a href="{% url 'home' %}#about">Our story</a>
+            <a href="{% url 'home' %}#contact">Support</a>
+            {% if not user.is_authenticated %}
+                <a class="mobile-register-link" href="{% url 'register' %}">Join us</a>
+            {% endif %}
+        </nav>
 
-    <div class="header-actions">
         <div class="account-links">
             {% if user.is_authenticated %}
                 <a href="{% url 'account' %}">My account</a>
@@ -33,9 +33,12 @@
                 </form>
             {% else %}
                 <a href="{% url 'login' %}">Log in</a>
-                <a class="account-create" href="{% url 'register' %}">Create account</a>
+                <a class="account-create" href="{% url 'register' %}">Sig Up</a>
             {% endif %}
         </div>
+    </div>
+
+    <div class="header-actions">
         {% if show_cart %}
             <button class="cart-button" type="button" onclick="openCart()" aria-label="Open shopping bag">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 12H4L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>
@@ -47,5 +50,9 @@
                 <span>Shop all</span><span aria-hidden="true">↗</span>
             </a>
         {% endif %}
+        <button class="menu-toggle" type="button" aria-label="Open navigation menu" aria-expanded="false" aria-controls="header-navigation">
+            <span></span><span></span><span></span>
+        </button>
     </div>
 </header>
+<script src="{% static 'home/header.js' %}?v=20261119-1"></script>

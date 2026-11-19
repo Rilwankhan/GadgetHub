@@ -3,23 +3,25 @@ import logging
 import math
 import re
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import PasswordChangeForm, UserCreationForm
+from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
-from django.http import JsonResponse
+from django.db.models import Exists, OuterRef
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
-from .forms import AdminProfileForm, CustomerProfileForm
+from .forms import AdminProfileForm, CustomerProfileForm, CustomerRegistrationForm
 from .models import (
     Category,
     CustomerProfile,
@@ -29,7 +31,9 @@ from .models import (
     PaymentTransaction,
     Product,
 )
+from .pdf_reports import build_payment_receipt
 from .payments import RazorpayError, create_order as create_razorpay_order
+from .payments import fetch_order_payments as fetch_razorpay_order_payments
 from .payments import fetch_payment as fetch_razorpay_payment
 from .payments import verify_signature as verify_razorpay_signature
 
@@ -50,6 +54,11 @@ class SharedLoginView(LoginView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_success_url(self):
+        if (
+            not self.request.user.is_staff
+            and self.get_redirect_url() == f"{reverse('home')}?checkout=1"
+        ):
+            return self.get_redirect_url()
         return role_dashboard_url(self.request.user)
 
 
@@ -66,6 +75,21 @@ def home(request):
         product["price"] = float(product["price"])
         product["url"] = reverse("product_detail", args=[product["id"]])
     categories = Category.objects.filter(products__is_active=True).distinct()
+    profile = None
+    if request.user.is_authenticated:
+        profile, _ = CustomerProfile.objects.get_or_create(user=request.user)
+    customer_name = (
+        request.user.get_full_name().strip()
+        if request.user.is_authenticated
+        else ""
+    )
+    checkout_ready = bool(
+        request.user.is_authenticated
+        and customer_name
+        and request.user.email.strip()
+        and profile.mobile.strip()
+        and profile.address.strip()
+    )
     return render(
         request,
         "home/index.html",
@@ -74,6 +98,13 @@ def home(request):
             "categories": categories,
             "razorpay_enabled": settings.RAZORPAY_ENABLED,
             "razorpay_key_id": settings.RAZORPAY_KEY_ID,
+            "checkout_ready": checkout_ready,
+            "customer_name": customer_name,
+            "customer_email": (
+                request.user.email if request.user.is_authenticated else ""
+            ),
+            "customer_mobile": profile.mobile if profile else "",
+            "customer_address": profile.address if profile else "",
         },
     )
 
@@ -90,13 +121,21 @@ def product_detail(request, product_id):
 def register(request):
     if request.user.is_authenticated:
         return redirect(role_dashboard_url(request.user))
-    form = UserCreationForm(request.POST or None)
+    form = CustomerRegistrationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         user = form.save()
-        CustomerProfile.objects.get_or_create(user=user)
         login(request, user)
+        if request.POST.get("next") == f"{reverse('home')}?checkout=1":
+            return redirect(f"{reverse('home')}?checkout=1")
         return redirect("account")
-    return render(request, "home/register.html", {"form": form})
+    return render(
+        request,
+        "home/register.html",
+        {
+            "form": form,
+            "next": request.POST.get("next", request.GET.get("next", "")),
+        },
+    )
 
 
 @login_required
@@ -133,11 +172,20 @@ def account(request):
                 update_session_auth_hash(request, user)
                 messages.success(request, "Your password was updated.")
                 return redirect("account")
-    orders = (
-        request.user.orders.prefetch_related("items", "tracking_events").all()
-        if not is_admin
-        else Order.objects.none()
-    )
+    if not is_admin:
+        paid_transactions = PaymentTransaction.objects.filter(
+            order_id=OuterRef("pk"),
+            status=PaymentTransaction.Status.PAID,
+        )
+        orders = (
+            request.user.orders.annotate(
+                has_verified_payment=Exists(paid_transactions)
+            )
+            .prefetch_related("items", "tracking_events")
+            .all()
+        )
+    else:
+        orders = Order.objects.none()
     return render(
         request,
         "home/account.html",
@@ -152,6 +200,34 @@ def account(request):
             "is_admin": is_admin,
         },
     )
+
+
+@login_required
+@require_GET
+@never_cache
+def payment_receipt(request, order_id):
+    order = get_object_or_404(
+        Order.objects.filter(
+            user=request.user,
+            payment_method=Order.PaymentMethod.RAZORPAY,
+            payment_status=Order.PaymentStatus.PAID,
+        ).prefetch_related("items"),
+        pk=order_id,
+    )
+    payment = order.payment_transactions.filter(
+        status=PaymentTransaction.Status.PAID
+    ).first()
+    if payment is None:
+        raise Http404("A verified Razorpay payment was not found for this order.")
+
+    response = HttpResponse(
+        build_payment_receipt(order, payment).getvalue(),
+        content_type="application/pdf",
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="GadgetHub-Receipt-Order-{order.pk}.pdf"'
+    )
+    return response
 
 
 @require_POST
@@ -182,6 +258,18 @@ def cancel_order(request, order_id):
     return redirect("account")
 
 
+@require_POST
+@login_required
+def delete_cancelled_order(request, order_id):
+    order = get_object_or_404(
+        Order.objects.filter(user=request.user, status=Order.Status.CANCELLED),
+        pk=order_id,
+    )
+    order.delete()
+    messages.success(request, "Cancelled order removed from your order history.")
+    return redirect("account")
+
+
 @never_cache
 @require_GET
 @login_required
@@ -195,12 +283,19 @@ def order_tracking(request):
                     "status": order.status,
                     "status_label": order.get_status_display(),
                     "can_cancel": order.can_be_cancelled,
+                    "created_at": order.created_at.isoformat(),
+                    "delete_url": reverse("delete_cancelled_order", args=[order.pk]),
                     "product_names": [
                         item.product_name for item in order.items.all()
                     ],
                     "delivered_at": (
                         order.delivered_at.isoformat()
                         if order.delivered_at
+                        else None
+                    ),
+                    "cancelled_at": (
+                        order.cancelled_at.isoformat()
+                        if order.cancelled_at
                         else None
                     ),
                     "tracking_steps": order.tracking_steps,
@@ -221,22 +316,38 @@ def order_tracking(request):
 
 
 @require_POST
-@login_required
 def place_order(request):
+    if not request.user.is_authenticated:
+        checkout_url = f"{reverse('home')}?checkout=1"
+        return redirect(
+            f"{reverse('login')}?{urlencode({'next': checkout_url})}"
+        )
     try:
         payload = json.loads(request.body)
-        name = str(payload.get("name", "")).strip()
-        email = str(payload.get("email", "")).strip()
-        phone = str(payload.get("mobile", "")).strip()
-        address = str(payload.get("address", "")).strip()
+        profile, _ = CustomerProfile.objects.get_or_create(user=request.user)
+        name = request.user.get_full_name().strip()
+        email = request.user.email.strip()
+        phone = profile.mobile.strip()
+        address = profile.address.strip()
         cart = payload.get("cart")
         payment_method = payload.get("payment_method", Order.PaymentMethod.CASH_ON_DELIVERY)
         location = payload.get("location")
 
         if not all((name, email, phone, address)):
-            return JsonResponse({"error": "Complete all delivery details."}, status=400)
+            return JsonResponse(
+                {
+                    "error": (
+                        "Complete your name, email, mobile number, and delivery "
+                        "address in Personal Details before ordering."
+                    )
+                },
+                status=400,
+            )
         if len(name) > 160 or len(phone) > 30 or not re.fullmatch(r"[0-9+() -]{7,30}", phone):
-            return JsonResponse({"error": "Enter a valid name and phone number."}, status=400)
+            return JsonResponse(
+                {"error": "Update your account with a valid name and phone number."},
+                status=400,
+            )
         try:
             validate_email(email)
         except ValidationError:
@@ -261,7 +372,10 @@ def place_order(request):
             return JsonResponse({"error": "Invalid location coordinates."}, status=400)
         if not isinstance(cart, list) or not cart:
             return JsonResponse({"error": "Your cart is empty."}, status=400)
-        if payment_method not in Order.PaymentMethod.values:
+        if payment_method not in (
+            Order.PaymentMethod.CASH_ON_DELIVERY,
+            Order.PaymentMethod.RAZORPAY,
+        ):
             return JsonResponse({"error": "Choose a valid payment method."}, status=400)
         if (
             payment_method == Order.PaymentMethod.RAZORPAY
@@ -391,7 +505,13 @@ def place_order(request):
                 },
             }
         )
-    except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+    except (
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        AttributeError,
+        TypeError,
+        ValueError,
+    ):
         return JsonResponse({"error": "Invalid order details."}, status=400)
 
 
@@ -556,16 +676,124 @@ def _update_payment_attempt(request, target_status):
     ):
         return JsonResponse({"error": "Invalid payment update."}, status=400)
 
+    payment_id = payload.get("razorpay_payment_id")
+    if target_status == PaymentTransaction.Status.FAILED:
+        if not isinstance(payment_id, str) or not re.fullmatch(
+            r"pay_[A-Za-z0-9]+", payment_id
+        ):
+            return JsonResponse(
+                {"error": "Razorpay did not provide a verifiable payment reference."},
+                status=400,
+            )
+    payment_transaction = get_object_or_404(
+        PaymentTransaction.objects.select_related("order").filter(
+            order__user=request.user,
+            order__payment_method=Order.PaymentMethod.RAZORPAY,
+        ),
+        order_id=order_id,
+        razorpay_order_id=payment_order_id,
+    )
+    order = payment_transaction.order
+    if (
+        order.payment_status == Order.PaymentStatus.PAID
+        or payment_transaction.status == PaymentTransaction.Status.PAID
+    ):
+        return JsonResponse({"error": "This order has already been paid."}, status=409)
+
+    provider_payments = None
+    failure_record = None
+    if target_status == PaymentTransaction.Status.FAILED:
+        try:
+            provider_payment = fetch_razorpay_payment(payment_id)
+        except RazorpayError:
+            logger.exception(
+                "Could not verify failed Razorpay payment for order %s.", order_id
+            )
+            return JsonResponse(
+                {"error": "Could not verify payment with Razorpay. Please try again."},
+                status=502,
+            )
+        if (
+            provider_payment.get("id") != payment_id
+            or provider_payment.get("order_id") != payment_order_id
+            or provider_payment.get("amount")
+            != int(payment_transaction.amount * 100)
+            or provider_payment.get("currency") != payment_transaction.currency
+            or provider_payment.get("status") != "failed"
+        ):
+            return JsonResponse(
+                {"error": "Razorpay did not confirm this payment failure."},
+                status=409,
+            )
+        failure_record = provider_payment
+    else:
+        try:
+            provider_order_payments = fetch_razorpay_order_payments(payment_order_id)
+        except RazorpayError:
+            logger.exception(
+                "Could not verify Razorpay checkout closure for order %s.", order.pk
+            )
+            return JsonResponse(
+                {
+                    "error": (
+                        "Could not confirm payment status with Razorpay. "
+                        "Please check your order again."
+                    )
+                },
+                status=502,
+            )
+        provider_payments = provider_order_payments.get("items")
+        if not isinstance(provider_payments, list):
+            return JsonResponse(
+                {"error": "Razorpay returned invalid payment details."},
+                status=502,
+            )
+        if any(
+            not isinstance(payment, dict)
+            or payment.get("status") in ("authorized", "captured")
+            for payment in provider_payments
+        ):
+            return JsonResponse(
+                {
+                    "error": (
+                        "A payment is still processing. Check your order "
+                        "status before trying again."
+                    )
+                },
+                status=409,
+            )
+        if provider_payments and any(
+            payment.get("status") != "failed" for payment in provider_payments
+        ):
+            return JsonResponse(
+                {"error": "Razorpay has not confirmed that checkout was cancelled."},
+                status=409,
+            )
+        if provider_payments:
+            for payment in provider_payments:
+                if (
+                    not isinstance(payment.get("id"), str)
+                    or not re.fullmatch(r"pay_[A-Za-z0-9]+", payment["id"])
+                    or payment.get("order_id") != payment_order_id
+                    or payment.get("amount") != int(payment_transaction.amount * 100)
+                    or payment.get("currency") != payment_transaction.currency
+                ):
+                    return JsonResponse(
+                        {"error": "Razorpay payment details did not match this order."},
+                        status=409,
+                    )
+            failure_record = provider_payments[-1]
+
+    effective_status = target_status
+    if target_status == PaymentTransaction.Status.CANCELLED and failure_record:
+        effective_status = PaymentTransaction.Status.FAILED
     with transaction.atomic():
-        order = get_object_or_404(
-            Order.objects.select_for_update().filter(
-                user=request.user,
-                payment_method=Order.PaymentMethod.RAZORPAY,
-            ),
+        order = Order.objects.select_for_update().get(
             pk=order_id,
+            user=request.user,
+            payment_method=Order.PaymentMethod.RAZORPAY,
         )
-        payment_transaction = get_object_or_404(
-            PaymentTransaction.objects.select_for_update(),
+        payment_transaction = PaymentTransaction.objects.select_for_update().get(
             order=order,
             razorpay_order_id=payment_order_id,
         )
@@ -574,13 +802,14 @@ def _update_payment_attempt(request, target_status):
         if payment_transaction.status == PaymentTransaction.Status.PAID:
             return JsonResponse({"error": "This payment is already complete."}, status=409)
 
-        payment_transaction.status = target_status
-        if target_status == PaymentTransaction.Status.FAILED:
-            error = payload.get("error")
-            error = error if isinstance(error, dict) else {}
-            payment_transaction.error_code = str(error.get("code") or "")[:100]
+        payment_transaction.status = effective_status
+        if effective_status == PaymentTransaction.Status.FAILED:
+            payment_transaction.razorpay_payment_id = failure_record["id"]
+            payment_transaction.error_code = str(
+                failure_record.get("error_code") or ""
+            )[:100]
             payment_transaction.error_description = str(
-                error.get("description") or "Payment did not complete."
+                failure_record.get("error_description") or "Payment did not complete."
             )[:2000]
             order.payment_status = Order.PaymentStatus.FAILED
         else:
@@ -591,11 +820,12 @@ def _update_payment_attempt(request, target_status):
                 "status",
                 "error_code",
                 "error_description",
+                "razorpay_payment_id",
                 "updated_at",
             ]
         )
         order.save(update_fields=["payment_status"])
-    return JsonResponse({"order_id": order.pk, "payment_status": target_status})
+    return JsonResponse({"order_id": order.pk, "payment_status": effective_status})
 
 
 @require_POST

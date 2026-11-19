@@ -9,21 +9,20 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261117">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261119-3">
 </head>
 <body class="account-page auth-page">
     <div class="auth-shell">
         <aside class="auth-aside">
             <a href="{% url 'home' %}" class="logo auth-logo">
-                <span class="logo-mark">g</span>
-                <span class="logo-word">gadget<span>hub</span></span>
+                <span class="logo-word">Gadget<span>Hub</span></span>
             </a>
             <div class="auth-aside-copy">
                 <p class="eyebrow">A BETTER WAY TO FIND YOUR TECH</p>
                 <h1>Make room for<br>something <span>clever.</span></h1>
                 <p>Create an account to keep your details and every order in one easy place.</p>
             </div>
-            <div class="auth-aside-note"><span>✳</span> Thoughtful tech for everyday life.</div>
+            <div class="auth-aside-note">Thoughtful tech for everyday life.</div>
             <div class="auth-orbit auth-orbit-one"></div>
             <div class="auth-orbit auth-orbit-two"></div>
         </aside>
@@ -33,11 +32,12 @@
             <p>A few details now make every order easier later.</p>
             <form method="post">
                 {% csrf_token %}
+                <input type="hidden" name="next" value="{{ next }}">
                 {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
                 {{ form.as_p }}
                 <button type="submit" class="checkout-button">Create account <span aria-hidden="true">→</span></button>
             </form>
-            <p class="account-switch">Already have an account? <a href="{% url 'login' %}">Sign in</a></p>
+            <p class="account-switch">Already have an account? <a href="{% url 'login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Sign in</a></p>
         </main>
     </div>
     <script src="{% static 'home/auth.js' %}?v=20261117"></script>

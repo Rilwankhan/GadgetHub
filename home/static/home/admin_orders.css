@@ -1,0 +1,134 @@
+body.model-order.change-list #changelist .results {
+    overflow-x: auto;
+}
+
+body.model-order.change-list #result_list {
+    min-width: 1160px;
+}
+
+body.model-order.change-list #result_list th,
+body.model-order.change-list #result_list td {
+    vertical-align: top;
+    white-space: normal;
+}
+
+body.model-order.change-list #result_list .field-customer_details {
+    min-width: 190px;
+}
+
+body.model-order.change-list #result_list .field-order_items_summary {
+    min-width: 155px;
+}
+
+body.model-order.change-list #result_list .field-delivery_location {
+    min-width: 230px;
+    max-width: 330px;
+}
+
+.order-customer-name,
+.order-delivery-address {
+    margin-bottom: 4px;
+    font-weight: 700;
+}
+
+.order-customer-name {
+    color: #17212b;
+}
+
+.order-item-summary + .order-item-summary {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #e4e8e8;
+}
+
+.order-item-summary small,
+.order-customer-name ~ small,
+.order-location-note {
+    display: block;
+    margin-top: 3px;
+    color: #687889;
+    font-size: 11px;
+}
+
+.order-empty-note {
+    color: #687889;
+    font-style: italic;
+}
+
+.order-map-link {
+    display: inline-block;
+    margin-top: 3px;
+    color: #245fd1;
+    font-weight: 600;
+}
+
+.order-status-badge,
+.payment-status-badge {
+    display: inline-block;
+    padding: 4px 9px;
+    border: 1px solid #d5e4ff;
+    border-radius: 999px;
+    background: #eff5ff;
+    color: #2455a3;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.payment-status-badge {
+    border-color: #e4d9ff;
+    background: #f5f0ff;
+    color: #6942a5;
+}
+
+body.model-order.change-form .gadgethub-order-fieldset {
+    margin: 0 0 18px;
+    padding: 0 18px 12px;
+    overflow: hidden;
+    border: 1px solid #dce5f1;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(28, 48, 74, 0.05);
+}
+
+body.model-order.change-form .gadgethub-order-fieldset > h2 {
+    margin: 0 -18px 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid #dce5f1;
+    background: linear-gradient(100deg, #f2f7ff, #f8f6ff);
+    color: #1c3760;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+body.model-order.change-form .gadgethub-order-fieldset .description {
+    padding: 0 0 10px;
+    color: #61738b;
+    font-size: 12px;
+}
+
+body.model-order.change-form .gadgethub-order-fieldset .form-row {
+    padding: 10px 0;
+}
+
+body.model-order.change-form .field-delivery_map_link a {
+    font-weight: 700;
+}
+
+@media (max-width: 767px) {
+    body.model-order.change-list #changelist .results {
+        margin-right: -12px;
+    }
+
+    body.model-order.change-form .gadgethub-order-fieldset {
+        padding-right: 12px;
+        padding-left: 12px;
+    }
+
+    body.model-order.change-form .gadgethub-order-fieldset > h2 {
+        margin-right: -12px;
+        margin-left: -12px;
+        padding-right: 12px;
+        padding-left: 12px;
+    }
+}

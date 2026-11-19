@@ -11,6 +11,18 @@ if (orderTracking) {
         });
     });
 
+    function attachDeleteConfirmation(form) {
+        form.addEventListener("submit", event => {
+            if (!window.confirm(form.dataset.confirmMessage)) {
+                event.preventDefault();
+            }
+        });
+    }
+
+    orderTracking.querySelectorAll("[data-delete-cancelled-order]").forEach(
+        attachDeleteConfirmation
+    );
+
     function renderDeliveredOrder(card, order) {
         const summary = document.createElement("div");
         summary.className = "delivered-order-summary";
@@ -53,6 +65,76 @@ if (orderTracking) {
         card.replaceChildren(summary);
     }
 
+    function renderCancelledOrder(card, order) {
+        const csrfInput = card.querySelector("[name=csrfmiddlewaretoken]");
+        const summary = document.createElement("div");
+        summary.className = "delivered-order-summary cancelled-order-summary";
+        summary.setAttribute("aria-live", "polite");
+
+        const cross = document.createElement("span");
+        cross.className = "delivered-order-check cancelled-order-cross";
+        cross.setAttribute("aria-hidden", "true");
+        cross.textContent = "✕";
+
+        const info = document.createElement("div");
+        info.className = "delivered-order-info";
+        order.product_names.forEach(productName => {
+            const name = document.createElement("p");
+            name.className = "delivered-product-name";
+            name.textContent = productName;
+            info.append(name);
+        });
+
+        const status = document.createElement("p");
+        status.className = "delivered-order-status";
+        status.textContent = "Status: Cancelled";
+        info.append(status);
+
+        [
+            ["Booking Date & Time", order.created_at],
+            ["Cancellation Date & Time", order.cancelled_at]
+        ].forEach(([label, date]) => {
+            if (!date) {
+                return;
+            }
+            const time = document.createElement("time");
+            time.className = "delivered-order-time";
+            time.dateTime = date;
+            time.textContent = `${label}: ${new Date(date).toLocaleString(
+                undefined,
+                { dateStyle: "medium", timeStyle: "short" }
+            )}`;
+            info.append(time);
+        });
+
+        const form = document.createElement("form");
+        form.method = "post";
+        form.action = order.delete_url;
+        form.className = "delete-cancelled-order-form";
+        form.dataset.deleteCancelledOrder = "";
+        form.dataset.confirmMessage =
+            `Delete cancelled order #${order.id} from your order history?`;
+        if (csrfInput) {
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "csrfmiddlewaretoken";
+            input.value = csrfInput.value;
+            form.append(input);
+        }
+        const button = document.createElement("button");
+        button.type = "submit";
+        button.className = "button button-delete-order";
+        button.textContent = "Delete Order";
+        form.append(button);
+        attachDeleteConfirmation(form);
+
+        info.append(form);
+        summary.append(cross, info);
+        card.classList.add("account-order-cancelled");
+        card.dataset.orderCancelledCard = "true";
+        card.replaceChildren(summary);
+    }
+
     function updateOrder(order) {
         const card = orderTracking.querySelector(`[data-order-id="${order.id}"]`);
         if (!card) {
@@ -62,6 +144,12 @@ if (orderTracking) {
         if (order.status === "delivered") {
             if (!card.hasAttribute("data-order-delivered")) {
                 renderDeliveredOrder(card, order);
+            }
+            return;
+        }
+        if (order.status === "cancelled") {
+            if (!card.hasAttribute("data-order-cancelled-card")) {
+                renderCancelledOrder(card, order);
             }
             return;
         }
@@ -150,7 +238,7 @@ if (orderTracking) {
     function hasTrackableOrders() {
         return Boolean(
             orderTracking.querySelector(
-                "[data-order-id]:not([data-order-delivered])"
+                "[data-order-id]:not([data-order-delivered]):not([data-order-cancelled-card])"
             )
         );
     }
