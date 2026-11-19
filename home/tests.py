@@ -767,11 +767,16 @@ class RazorpayPaymentTests(TestCase):
         result = self.create_pending_payment()
         order = Order.objects.get(pk=result["order_id"])
         payment = order.payment_transactions.get()
+        account_response = self.client.get(reverse("account"))
+        tracking_response = self.client.get(reverse("order_tracking"))
 
         self.assertEqual(result["razorpay"]["key_id"], "rzp_test_public")
         self.assertEqual(result["razorpay"]["amount"], 499800)
         self.assertNotIn("test_secret", json.dumps(result))
         self.assertEqual(order.payment_status, Order.PaymentStatus.PENDING)
+        self.assertEqual(order.status, Order.Status.PENDING)
+        self.assertNotContains(account_response, f"ORDER #{order.pk}")
+        self.assertNotIn(order.pk, [row["id"] for row in tracking_response.json()["orders"]])
         self.assertEqual(payment.amount, Decimal("4998.00"))
         self.assertEqual(payment.status, PaymentTransaction.Status.CREATED)
 
@@ -801,6 +806,14 @@ class RazorpayPaymentTests(TestCase):
         self.assertEqual(order.payment_status, Order.PaymentStatus.PAID)
         self.assertEqual(payment.status, PaymentTransaction.Status.PAID)
         self.assertEqual(payment.razorpay_payment_id, "pay_test123")
+        self.assertEqual(order.status, Order.Status.CONFIRMED)
+        self.assertTrue(
+            order.tracking_events.filter(
+                status=Order.Status.CONFIRMED,
+                description="Payment received and verified. Your order is confirmed.",
+            ).exists()
+        )
+        self.assertContains(self.client.get(reverse("account")), f"ORDER #{order.pk}")
 
     @patch(
         "home.views.fetch_razorpay_payment",
@@ -962,8 +975,10 @@ class RazorpayPaymentTests(TestCase):
         order = Order.objects.get(pk=result["order_id"])
         payment = order.payment_transactions.get()
         self.assertEqual(order.payment_status, Order.PaymentStatus.FAILED)
+        self.assertEqual(order.status, Order.Status.PENDING)
         self.assertEqual(payment.status, PaymentTransaction.Status.FAILED)
         self.assertEqual(payment.error_code, "PAYMENT_FAILED")
+        self.assertNotContains(self.client.get(reverse("account")), f"ORDER #{order.pk}")
 
     @patch(
         "home.views.fetch_razorpay_order_payments",

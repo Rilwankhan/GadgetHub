@@ -32,13 +32,13 @@ body.model-order.change-list #result_list .field-delivery_location {
 }
 
 .order-customer-name {
-    color: #17212b;
+    color: #e7ebf4;
 }
 
 .order-item-summary + .order-item-summary {
     margin-top: 6px;
     padding-top: 6px;
-    border-top: 1px solid #e4e8e8;
+    border-top: 1px solid #344258;
 }
 
 .order-item-summary small,
@@ -46,19 +46,19 @@ body.model-order.change-list #result_list .field-delivery_location {
 .order-location-note {
     display: block;
     margin-top: 3px;
-    color: #687889;
+    color: #aab7ca;
     font-size: 11px;
 }
 
 .order-empty-note {
-    color: #687889;
+    color: #aab7ca;
     font-style: italic;
 }
 
 .order-map-link {
     display: inline-block;
     margin-top: 3px;
-    color: #245fd1;
+    color: #9ec4ff;
     font-weight: 600;
 }
 
@@ -66,44 +66,48 @@ body.model-order.change-list #result_list .field-delivery_location {
 .payment-status-badge {
     display: inline-block;
     padding: 4px 9px;
-    border: 1px solid #d5e4ff;
+    border: 1px solid #385c80;
     border-radius: 999px;
-    background: #eff5ff;
-    color: #2455a3;
+    background: #203650;
+    color: #b6d7ff;
     font-size: 11px;
     font-weight: 700;
     white-space: nowrap;
 }
 
 .payment-status-badge {
-    border-color: #e4d9ff;
-    background: #f5f0ff;
-    color: #6942a5;
+    border-color: #574477;
+    background: #342b4c;
+    color: #ddc5ff;
 }
 
 body.model-order.change-form .gadgethub-order-fieldset {
     margin: 0 0 18px;
     padding: 0 18px 12px;
     overflow: hidden;
-    border: 1px solid #dce5f1;
+    border: 1px solid #344258;
     border-radius: 12px;
-    background: #fff;
-    box-shadow: 0 3px 12px rgba(28, 48, 74, 0.05);
+    background: #1b2639;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+    scroll-margin-top: 92px;
 }
 
 body.model-order.change-form .gadgethub-order-fieldset > h2 {
     margin: 0 -18px 12px;
     padding: 12px 18px;
-    border-bottom: 1px solid #dce5f1;
-    background: linear-gradient(100deg, #f2f7ff, #f8f6ff);
-    color: #1c3760;
+    border-bottom: 1px solid #344258;
+    background: #222f45;
+    color: #e7ebf4;
     font-size: 13px;
     font-weight: 700;
+    position: relative;
+    z-index: 1;
+    overflow-wrap: anywhere;
 }
 
 body.model-order.change-form .gadgethub-order-fieldset .description {
     padding: 0 0 10px;
-    color: #61738b;
+    color: #b1bdd0;
     font-size: 12px;
 }
 

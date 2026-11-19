@@ -8,11 +8,25 @@
 {% endblock %}
 
 {% block content %}
-<div id="content-main">
-    <h1>Order updates</h1>
-    <p>Move each order forward one delivery step. Customers’ tracking pages refresh automatically.</p>
-    <div class="module">
-        <table>
+<div id="content-main" class="gh-order-updates">
+    <div class="gh-order-heading">
+        <div>
+            <p class="gh-kicker">ORDER MANAGEMENT</p>
+            <h1>Order updates</h1>
+        </div>
+        <p>Move each order forward one delivery step.</p>
+    </div>
+    <div class="module gh-order-table-card">
+        <div class="gh-order-table-scroll">
+        <table class="gh-order-table">
+            <colgroup>
+                <col class="gh-col-order">
+                <col class="gh-col-customer">
+                <col class="gh-col-items">
+                <col class="gh-col-total">
+                <col class="gh-col-status">
+                <col class="gh-col-next">
+            </colgroup>
             <thead>
                 <tr>
                     <th scope="col">Order</th>
@@ -60,6 +74,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
 </div>
 {% endblock %}

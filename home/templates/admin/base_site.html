@@ -1,0 +1,50 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | GadgetHub{% endblock %}
+{% block branding %}
+<a href="{% url 'admin:index' %}" class="gh-brand" aria-label="GadgetHub dashboard">
+    <span class="logo-word">Gadget<span>Hub</span></span>
+</a>
+{% endblock %}
+{% block nav-global %}{% endblock %}
+{% block nav-sidebar %}
+<aside class="gh-sidebar" aria-label="Admin navigation">
+    <div class="gh-sidebar-label">WORKSPACE</div>
+    <a class="gh-nav-link {% if admin_path == '/admin/' %}is-active{% endif %}" href="{% url 'admin:index' %}"><span class="gh-nav-icon">⌂</span><span>Home</span></a>
+    <div class="gh-sidebar-label gh-sidebar-spaced">MANAGEMENT</div>
+    {% if perms.home.view_product or perms.home.view_category or perms.home.view_order %}
+    <details class="gh-nav-group" {% if 'home/' in admin_path or 'order-updates' in admin_path %}open{% endif %}>
+        <summary><span class="gh-nav-icon">▦</span><span>Store Management</span><span class="gh-chevron">⌄</span></summary>
+        <div class="gh-nav-submenu">
+            {% if perms.home.view_order %}<a href="{% url 'admin:order_updates' %}">Order updates</a>{% endif %}
+            {% if perms.home.view_order %}<a href="{% url 'admin:home_order_changelist' %}">Orders</a>{% endif %}
+            {% if perms.home.view_product %}<a href="{% url 'admin:home_product_changelist' %}">Products</a>{% endif %}
+            {% if perms.home.view_category %}<a href="{% url 'admin:home_category_changelist' %}">Categories</a>{% endif %}
+        </div>
+    </details>
+    {% endif %}
+    {% if perms.home.view_paymenttransaction %}<a class="gh-nav-link {% if 'paymenttransaction' in admin_path %}is-active{% endif %}" href="{% url 'admin:home_paymenttransaction_changelist' %}"><span class="gh-nav-icon">◷</span><span>Transaction Overview</span></a>{% endif %}
+    <div class="gh-sidebar-label gh-sidebar-spaced">ACCESS</div>
+    {% if perms.auth.view_user or perms.auth.view_group %}
+    <details class="gh-nav-group" {% if 'auth/' in admin_path %}open{% endif %}>
+        <summary><span class="gh-nav-icon">♙</span><span>Authentication &amp; Authorization</span><span class="gh-chevron">⌄</span></summary>
+        <div class="gh-nav-submenu">
+            {% if perms.auth.view_user %}<a href="{% url 'admin:auth_user_changelist' %}">Users</a>{% endif %}
+            {% if perms.auth.view_group %}<a href="{% url 'admin:auth_group_changelist' %}">Groups &amp; permissions</a>{% endif %}
+        </div>
+    </details>
+    {% endif %}
+    <div class="gh-sidebar-footer"><span class="gh-avatar">{{ user.get_username|slice:":1"|upper }}</span><span><strong>{{ user.get_username }}</strong><small>Administrator</small></span></div>
+</aside>
+<button class="gh-mobile-menu" type="button" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+{% endblock %}
+{% block extrahead %}
+    {{ block.super }}
+    <script>document.documentElement.setAttribute('data-theme', 'dark');</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'home/admin.css' %}?v=20261121-13">
+    <script src="{% static 'home/admin-nav.js' %}?v=20261119-1" defer></script>
+{% endblock %}

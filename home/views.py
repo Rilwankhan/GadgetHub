@@ -14,7 +14,7 @@ from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -181,6 +181,15 @@ def account(request):
             request.user.orders.annotate(
                 has_verified_payment=Exists(paid_transactions)
             )
+            .filter(
+                Q(
+                    payment_method__in=[
+                        Order.PaymentMethod.CASH_ON_DELIVERY,
+                        Order.PaymentMethod.ARRANGE_WITH_STORE,
+                    ]
+                )
+                | Q(payment_status=Order.PaymentStatus.PAID)
+            )
             .prefetch_related("items", "tracking_events")
             .all()
         )
@@ -274,7 +283,15 @@ def delete_cancelled_order(request, order_id):
 @require_GET
 @login_required
 def order_tracking(request):
-    orders = request.user.orders.prefetch_related("items", "tracking_events")
+    orders = request.user.orders.filter(
+        Q(
+            payment_method__in=[
+                Order.PaymentMethod.CASH_ON_DELIVERY,
+                Order.PaymentMethod.ARRANGE_WITH_STORE,
+            ]
+        )
+        | Q(payment_status=Order.PaymentStatus.PAID)
+    ).prefetch_related("items", "tracking_events")
     return JsonResponse(
         {
             "orders": [
@@ -653,7 +670,13 @@ def verify_razorpay_payment(request):
             ]
         )
         locked_order.payment_status = Order.PaymentStatus.PAID
-        locked_order.save(update_fields=["payment_status"])
+        locked_order.status = Order.Status.CONFIRMED
+        locked_order.save(update_fields=["payment_status", "status"])
+        OrderTrackingEvent.objects.create(
+            order=locked_order,
+            status=Order.Status.CONFIRMED,
+            description="Payment received and verified. Your order is confirmed.",
+        )
 
     return JsonResponse({"order_id": order.pk, "payment_status": "paid"})
 

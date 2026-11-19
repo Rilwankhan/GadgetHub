@@ -1,77 +1,124 @@
-{% extends "admin/index.html" %}
+{% extends "admin/base_site.html" %}
+{% load static log admin_filters %}
 
+{% block content_title %}{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
 {% block content %}
-<div class="module">
-    <table>
-        <caption>Store overview</caption>
-        <tbody>
-            <tr>
-                <th scope="row"><a href="{% url 'admin:auth_user_changelist' %}">User accounts</a></th>
-                <td>{{ store_summary.user_count }}</td>
-            </tr>
-            {% if can_view_orders %}
-                <tr>
-                    <th scope="row"><a href="{% url 'admin:home_order_changelist' %}">Orders</a></th>
-                    <td>{{ store_summary.order_count }}</td>
-                </tr>
-                <tr>
-                    <th scope="row"><a href="{% url 'admin:home_order_changelist' %}?status=pending">Pending orders</a></th>
-                    <td>{{ store_summary.pending_order_count }}</td>
-                </tr>
-                <tr>
-                    <th scope="row"><a href="{% url 'admin:order_updates' %}">Update order statuses</a></th>
-                    <td>Confirm, ship, and deliver orders</td>
-                </tr>
-            {% endif %}
-            <tr>
-                <th scope="row"><a href="{% url 'admin:home_product_changelist' %}">Products</a></th>
-                <td>{{ store_summary.product_count }} total / {{ store_summary.active_product_count }} active</td>
-            </tr>
-            <tr>
-                <th scope="row"><a href="{% url 'admin:home_category_changelist' %}">Categories</a></th>
-                <td>{{ store_summary.category_count }}</td>
-            </tr>
-            {% if can_view_orders %}
-                <tr>
-                    <th scope="row"><a href="{% url 'admin:home_paymenttransaction_changelist' %}">Razorpay transactions</a></th>
-                    <td>{{ store_summary.razorpay_payment_count }}</td>
-                </tr>
-                <tr>
-                    <th scope="row"><a href="{% url 'admin:home_paymenttransaction_changelist' %}?status=failed">Failed payments</a></th>
-                    <td>{{ store_summary.failed_payment_count }}</td>
-                </tr>
-                <tr>
-                    <th scope="row">Paid order total</th>
-                    <td>₹{{ store_summary.paid_total|floatformat:2 }}</td>
-                </tr>
-                <tr>
-                    <th scope="row">Outstanding order total</th>
-                    <td>₹{{ store_summary.outstanding_total|floatformat:2 }}</td>
-                </tr>
-            {% endif %}
-        </tbody>
-    </table>
-</div>
-{% if can_view_orders %}
-    <div class="module">
-        <h2>Monthly sales report</h2>
-        <p>Download order, payment, and cancellation totals for a selected month.</p>
-        <form method="get" action="{% url 'admin:monthly_sales_report' %}">
-            <label for="sales-report-month">Report month</label>
-            <input
-                id="sales-report-month"
-                type="month"
-                name="month"
-                value="{{ store_summary.current_month }}"
-                required
-            >
-            <button type="submit">Download PDF</button>
-        </form>
+<div class="gh-dashboard">
+{% if dashboard_section == 'recent-actions' %}
+    <div class="gh-dashboard-heading">
+        <div><p class="gh-kicker">ADMIN ACTIVITY</p><h1>Recent actions</h1><p class="gh-muted">Your latest changes and activity in the admin console.</p></div>
     </div>
-{% endif %}
-<div class="module">
-    <h2>Your account</h2>
-    <p><a href="{% url 'account' %}">Update your admin profile and employee details</a></p>
+    <section class="gh-panel gh-activity-panel" aria-label="Recent administrative actions">
+        {% get_admin_log 50 as admin_log for_user user %}
+        {% if admin_log %}
+            <div class="gh-activity-list">
+            {% for entry in admin_log %}
+                <article class="gh-activity-item">
+                    <span class="gh-activity-mark {% if entry.is_addition %}is-add{% elif entry.is_deletion %}is-delete{% else %}is-change{% endif %}">{% if entry.is_addition %}+{% elif entry.is_deletion %}−{% else %}↻{% endif %}</span>
+                    <div><strong>{% if entry.is_deletion or not entry.get_admin_url %}{{ entry.object_repr|to_object_display_value }}{% else %}<a href="{{ entry.get_admin_url }}">{{ entry.object_repr|to_object_display_value }}</a>{% endif %}</strong><small>{% if entry.is_addition %}Added{% elif entry.is_deletion %}Deleted{% else %}Changed{% endif %} · {% if entry.content_type %}{{ entry.content_type.name|capfirst }}{% else %}Unknown content{% endif %}</small></div>
+                    <time>{{ entry.action_time|date:"M j, Y · H:i" }}</time>
+                </article>
+            {% endfor %}
+            </div>
+        {% else %}
+            <div class="gh-empty-state"><span>◷</span><strong>No recent actions</strong><small>Administrative activity will appear here.</small></div>
+        {% endif %}
+    </section>
+{% else %}
+    <div class="gh-dashboard-heading">
+        <div>
+            <p class="gh-kicker">GADGETHUB CONTROL CENTER</p>
+            <h1>Good morning, {{ user.first_name|default:user.username }}.</h1>
+            <p class="gh-muted">A clear view of your store, orders and payments.</p>
+        </div>
+        {% if can_view_orders %}
+            <div class="gh-heading-actions">
+                <a class="gh-button gh-button-quiet" href="{% url 'admin:monthly_sales_report' %}?month={{ store_summary.current_month }}">Download report <span aria-hidden="true">↓</span></a>
+                <a class="gh-button" href="{% url 'admin:order_updates' %}">Update orders <span aria-hidden="true">→</span></a>
+            </div>
+        {% endif %}
+    </div>
+
+    <h2 class="gh-visually-hidden">Store overview</h2>
+    <section class="gh-metric-grid" aria-label="Store metrics">
+        <a class="gh-metric-card gh-metric-card-primary" href="{% url 'admin:home_order_changelist' %}">
+            <span class="gh-metric-icon">₹</span>
+            <span class="gh-metric-label">Paid revenue</span>
+            <strong>₹{{ store_summary.paid_total|floatformat:0 }}</strong>
+            <small>Verified order payments</small>
+        </a>
+        <a class="gh-metric-card" href="{% url 'admin:home_order_changelist' %}">
+            <span class="gh-metric-icon gh-icon-blue">↗</span>
+            <span class="gh-metric-label">Eligible orders</span>
+            <strong>{{ store_summary.order_count }}</strong>
+            <small>{{ store_summary.pending_order_count }} awaiting confirmation</small>
+        </a>
+        <a class="gh-metric-card" href="{% url 'admin:home_product_changelist' %}">
+            <span class="gh-metric-icon gh-icon-green">✦</span>
+            <span class="gh-metric-label">Products</span>
+            <strong>{{ store_summary.product_count }}</strong>
+            <small>{{ store_summary.active_product_count }} currently active</small>
+        </a>
+        <a class="gh-metric-card" href="{% url 'admin:auth_user_changelist' %}">
+            <span class="gh-metric-icon gh-icon-orange">●</span>
+            <span class="gh-metric-label">Customers</span>
+            <strong>{{ store_summary.user_count }}</strong>
+            <small>Registered accounts</small>
+        </a>
+    </section>
+
+    {% if can_view_orders %}
+        <section class="gh-insight-grid">
+            <article class="gh-panel">
+                <div class="gh-panel-heading">
+                    <div>
+                        <p class="gh-kicker">PAYMENT HEALTH</p>
+                        <h2>Transaction overview</h2>
+                    </div>
+                    <a class="gh-text-link" href="{% url 'admin:home_paymenttransaction_changelist' %}">View all →</a>
+                </div>
+                <div class="gh-payment-list">
+                    <a href="{% url 'admin:home_paymenttransaction_changelist' %}?status=paid"><span class="gh-status-dot gh-status-paid"></span><span>Successful</span><strong>{{ store_summary.successful_payment_count }}</strong></a>
+                    <a href="{% url 'admin:home_paymenttransaction_changelist' %}?status=created"><span class="gh-status-dot gh-status-pending"></span><span>Pending</span><strong>{{ store_summary.pending_payment_count }}</strong></a>
+                    <a href="{% url 'admin:home_paymenttransaction_changelist' %}?status=failed"><span class="gh-status-dot gh-status-failed"></span><span>Failed</span><strong>{{ store_summary.failed_payment_count }}</strong></a>
+                    <a href="{% url 'admin:home_order_changelist' %}?payment_status=refunded"><span class="gh-status-dot gh-status-refunded"></span><span>Refunded orders</span><strong>{{ store_summary.refunded_order_count }}</strong></a>
+                </div>
+            </article>
+            <article class="gh-panel gh-quick-panel">
+                <div class="gh-panel-heading">
+                    <div>
+                        <p class="gh-kicker">NEEDS ATTENTION</p>
+                        <h2>Keep the store moving</h2>
+                    </div>
+                </div>
+                <div class="gh-quick-grid">
+                    <a href="{% url 'admin:order_updates' %}"><span class="gh-quick-icon gh-icon-orange">↗</span><span><strong>{{ store_summary.pending_order_count }} pending COD orders</strong><small>Confirm, ship and deliver COD orders</small></span><b>→</b></a>
+                    <a href="{% url 'admin:home_paymenttransaction_changelist' %}?status=failed"><span class="gh-quick-icon gh-icon-red">!</span><span><strong>{{ store_summary.failed_payment_count }} failed payments</strong><small>Review Razorpay transaction attempts</small></span><b>→</b></a>
+                </div>
+            </article>
+        </section>
+
+
+    {% endif %}
+
+    <section class="gh-panel gh-tools-panel">
+        <div class="gh-panel-heading">
+            <div><p class="gh-kicker">STORE MANAGEMENT</p><h2>Common actions</h2></div>
+        </div>
+        <div class="gh-tools-grid">
+            <a href="{% url 'admin:home_product_changelist' %}"><span>✦</span><strong>Manage products</strong><small>Catalogue and availability</small></a>
+            <a href="{% url 'admin:home_category_changelist' %}"><span>⌘</span><strong>Manage categories</strong><small>{{ store_summary.category_count }} categories</small></a>
+            <a href="{% url 'account' %}"><span>◎</span><strong>Your profile</strong><small>Admin and employee details</small></a>
+        </div>
+        {% if can_view_orders %}
+            <form class="gh-report-form" method="get" action="{% url 'admin:monthly_sales_report' %}">
+                <label for="sales-report-month">Monthly sales report</label>
+                <input id="sales-report-month" type="month" name="month" value="{{ store_summary.current_month }}" required>
+                <button class="gh-button" type="submit">Download PDF <span aria-hidden="true">↓</span></button>
+            </form>
+        {% endif %}
+    </section>
 </div>
-{{ block.super }}
+{% endif %}
 {% endblock %}

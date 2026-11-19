@@ -36,7 +36,20 @@ def _api_request(path, payload=None):
         with urlopen(request, timeout=15) as response:
             result = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
-        raise RazorpayError(f"Razorpay returned HTTP {exc.code}.") from exc
+        # Razorpay's JSON error body contains the useful reason (for example,
+        # authentication failure or an invalid order parameter). Keep it in
+        # server logs so a failed checkout can be diagnosed without exposing
+        # credentials or raw gateway details to the customer.
+        try:
+            error_body = json.loads(exc.read().decode("utf-8"))
+            error = error_body.get("error", {}) if isinstance(error_body, dict) else {}
+            code = str(error.get("code") or "")[:100]
+            description = str(error.get("description") or "")[:500]
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            code, description = "", ""
+        detail = ": ".join(part for part in (code, description) if part)
+        suffix = f" ({detail})" if detail else ""
+        raise RazorpayError(f"Razorpay returned HTTP {exc.code}{suffix}.") from exc
     except (URLError, TimeoutError, OSError) as exc:
         raise RazorpayError("Could not reach Razorpay.") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

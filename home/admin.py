@@ -10,7 +10,7 @@ from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.http import (
     FileResponse,
     HttpResponseBadRequest,
@@ -54,6 +54,12 @@ class GadgetHubAdminSite(admin.AdminSite):
     index_template = "home/admin/index.html"
     login_template = "home/login.html"
 
+    def each_context(self, request):
+        context = super().each_context(request)
+        context["admin_path"] = request.path
+        context["dashboard_section"] = request.GET.get("section", "home")
+        return context
+
     def get_urls(self):
         custom_urls = [
             path(
@@ -80,20 +86,25 @@ class GadgetHubAdminSite(admin.AdminSite):
         return custom_urls + super().get_urls()
 
     def index(self, request, extra_context=None):
-        non_cancelled_orders = Order.objects.exclude(status=Order.Status.CANCELLED)
+        dashboard_orders = Order.objects.exclude(
+            status=Order.Status.CANCELLED
+        ).filter(
+            Q(payment_method=Order.PaymentMethod.CASH_ON_DELIVERY)
+            | Q(payment_status=Order.PaymentStatus.PAID)
+        )
         store_summary = {
             "user_count": get_user_model().objects.count(),
-            "order_count": Order.objects.count(),
-            "pending_order_count": Order.objects.filter(
+            "order_count": dashboard_orders.count(),
+            "pending_order_count": dashboard_orders.filter(
                 status=Order.Status.PENDING
             ).count(),
             "product_count": Product.objects.count(),
             "active_product_count": Product.objects.filter(is_active=True).count(),
             "category_count": Category.objects.count(),
-            "paid_total": non_cancelled_orders.filter(
+            "paid_total": dashboard_orders.filter(
                 payment_status=Order.PaymentStatus.PAID
             ).aggregate(total=Sum("total"))["total"] or Decimal("0.00"),
-            "outstanding_total": non_cancelled_orders.filter(
+            "outstanding_total": dashboard_orders.filter(
                 payment_status__in=[
                     Order.PaymentStatus.UNPAID,
                     Order.PaymentStatus.PENDING,
@@ -103,12 +114,22 @@ class GadgetHubAdminSite(admin.AdminSite):
             "failed_payment_count": PaymentTransaction.objects.filter(
                 status=PaymentTransaction.Status.FAILED
             ).count(),
+            "successful_payment_count": PaymentTransaction.objects.filter(
+                status=PaymentTransaction.Status.PAID
+            ).count(),
+            "pending_payment_count": PaymentTransaction.objects.filter(
+                status=PaymentTransaction.Status.CREATED
+            ).count(),
+            "refunded_order_count": Order.objects.filter(
+                payment_status=Order.PaymentStatus.REFUNDED
+            ).count(),
             "current_month": timezone.localdate().strftime("%Y-%m"),
         }
         context = {
             **(extra_context or {}),
             "store_summary": store_summary,
             "can_view_orders": can_view_order_data(request.user),
+            "dashboard_section": request.GET.get("section", "home"),
         }
         return super().index(request, extra_context=context)
 
@@ -177,7 +198,11 @@ class GadgetHubAdminSite(admin.AdminSite):
         orders = (
             Order.objects.select_related("user")
             .prefetch_related("items")
-            .all()
+            .exclude(status=Order.Status.CANCELLED)
+            .filter(
+                Q(payment_method=Order.PaymentMethod.CASH_ON_DELIVERY)
+                | Q(payment_status=Order.PaymentStatus.PAID)
+            )
         )
         context = {
             **self.each_context(request),
@@ -347,6 +372,7 @@ class OrderAdminForm(forms.ModelForm):
 
 class OrderAdmin(admin.ModelAdmin):
     form = OrderAdminForm
+    actions = ["cancel_selected_orders"]
     fieldsets = [
         (
             "Customer & contact",
@@ -416,11 +442,18 @@ class OrderAdmin(admin.ModelAdmin):
     list_per_page = 50
 
     class Media:
-        css = {"all": ("home/admin_orders.css",)}
+        css = {"all": ("home/admin_orders.css?v=20261121-2",)}
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related(
-            "items", "payment_transactions"
+        return (
+            super()
+            .get_queryset(request)
+            .exclude(status=Order.Status.CANCELLED)
+            .filter(
+                Q(payment_method=Order.PaymentMethod.CASH_ON_DELIVERY)
+                | Q(payment_status=Order.PaymentStatus.PAID)
+            )
+            .prefetch_related("items", "payment_transactions")
         )
 
     @admin.display(description="Order PDF")
@@ -536,7 +569,32 @@ class OrderAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
+        # Orders are kept as customer and payment history. Cancel them through
+        # the explicit admin action instead of deleting their related records.
         return False
+
+    @admin.action(description="Cancel selected orders")
+    def cancel_selected_orders(self, request, queryset):
+        cancelled_count = 0
+        with transaction.atomic():
+            orders = Order.objects.select_for_update().filter(pk__in=queryset.values("pk"))
+            for order in orders:
+                if order.status == Order.Status.CANCELLED:
+                    continue
+                order.status = Order.Status.CANCELLED
+                order.save(update_fields=["status"])
+                OrderTrackingEvent.objects.create(
+                    order=order,
+                    status=Order.Status.CANCELLED,
+                    description="An administrator cancelled this order.",
+                    updated_by=request.user,
+                )
+                cancelled_count += 1
+        self.message_user(
+            request,
+            f"{cancelled_count} order(s) cancelled. Customers can see the cancellation in their order history.",
+            messages.SUCCESS,
+        )
 
 
 class PaymentTransactionAdmin(admin.ModelAdmin):

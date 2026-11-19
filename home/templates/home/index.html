@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261119-3">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261119-13">
 </head>
 <body class="storefront">
     {% include "home/includes/store_header.html" with show_cart=True %}
@@ -36,7 +36,7 @@
                 <div class="hero-image-frame">
                     <img
                         class="hero-image"
-                        src="static/image/Hero_image.png"
+                        src="{% static 'image/Hero_image.png' %}"
                         alt="A curated collection of modern electronic devices">
                     <span class="hero-image-label"><span></span> THE GADGETHUB EDIT</span>
                 </div>
@@ -94,7 +94,7 @@
         <section class="story-section" id="about">
             <div class="story-image-wrap">
                 <img
-                    src="static/image/Tech_connect.png"
+                    src="{% static 'image/Tech_connect.png' %}"
                     alt="A team working together with technology">
                 <span class="story-image-label">TECH SHOULD FEEL LIKE THIS.</span>
             </div>
@@ -268,6 +268,6 @@
     {% if razorpay_enabled %}
         <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     {% endif %}
-    <script src="{% static 'home/script.js' %}?v=20261119-1"></script>
+    <script src="{% static 'home/script.js' %}?v=20261119-11"></script>
 </body>
 </html>
