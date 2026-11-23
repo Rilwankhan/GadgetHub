@@ -2,6 +2,8 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -28,6 +30,7 @@ class Product(models.Model):
     description = models.TextField()
     image = models.URLField(max_length=500)
     badge = models.CharField(max_length=40, blank=True)
+    stock_quantity = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -45,6 +48,15 @@ class CustomerProfile(models.Model):
     mobile = models.CharField(max_length=30, blank=True)
     address = models.TextField(blank=True)
     landmark = models.CharField(max_length=160, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                Lower("employee_id"),
+                condition=~Q(employee_id=""),
+                name="unique_employee_id_ci",
+            )
+        ]
 
     def __str__(self):
         return f"Profile for {self.user.username}"
@@ -91,6 +103,7 @@ class Order(models.Model):
         max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID
     )
     total = models.DecimalField(max_digits=12, decimal_places=2)
+    stock_deducted = models.BooleanField(default=False, editable=False)
     location_latitude = models.FloatField(null=True, blank=True)
     location_longitude = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -115,7 +128,7 @@ class Order(models.Model):
 
     @property
     def cancellation_deadline(self):
-        return self.created_at + timedelta(hours=48)
+        return self.created_at + timedelta(hours=24)
 
     @property
     def can_be_cancelled(self):
@@ -209,8 +222,12 @@ class OrderTrackingEvent(models.Model):
     order = models.ForeignKey(
         Order, on_delete=models.CASCADE, related_name="tracking_events"
     )
+    previous_status = models.CharField(
+        max_length=24, choices=Order.Status.choices, blank=True, default=""
+    )
     status = models.CharField(max_length=24, choices=Order.Status.choices)
     description = models.CharField(max_length=240)
+    updated_by_name = models.CharField(max_length=160, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -225,6 +242,34 @@ class OrderTrackingEvent(models.Model):
 
     def __str__(self):
         return f"Order #{self.order_id}: {self.get_status_display()}"
+
+
+class OrderPaymentEvent(models.Model):
+    order = models.ForeignKey(
+        Order, on_delete=models.CASCADE, related_name="payment_events"
+    )
+    previous_status = models.CharField(
+        max_length=20, choices=Order.PaymentStatus.choices
+    )
+    new_status = models.CharField(max_length=20, choices=Order.PaymentStatus.choices)
+    updated_by_name = models.CharField(max_length=160)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="order_payment_events",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self):
+        return (
+            f"Order #{self.order_id}: payment "
+            f"{self.get_previous_status_display()} to {self.get_new_status_display()}"
+        )
 
 
 class OrderItem(models.Model):

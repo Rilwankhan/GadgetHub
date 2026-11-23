@@ -1,0 +1,93 @@
+:root {
+    color-scheme: light;
+    font-family: "DM Sans", "Segoe UI", sans-serif;
+    color: #172033;
+    background: #f3f5f8;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: #f3f5f8; }
+a { color: inherit; }
+.staff-header {
+    display: flex;
+    min-height: 68px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 12px clamp(18px, 5vw, 64px);
+    background: #111827;
+    color: #fff;
+}
+.staff-brand { color: #fff; font-size: 20px; font-weight: 800; text-decoration: none; }
+.staff-brand span { color: #a99dff; }
+.staff-header-user { display: flex; align-items: center; gap: 20px; font-size: 13px; }
+.staff-header-user form { margin: 0; }
+.staff-header-user button, .staff-order-actions button {
+    min-height: 38px;
+    padding: 0 15px;
+    border: 0;
+    border-radius: 9px;
+    background: #6858e8;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 700;
+}
+.staff-shell { width: min(1200px, calc(100% - 36px)); margin: 40px auto; }
+.staff-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.staff-heading h1 { margin: 4px 0 8px; font-size: clamp(26px, 4vw, 36px); letter-spacing: -.04em; }
+.staff-heading p:not(.staff-kicker) { margin: 0; color: #657087; font-size: 14px; }
+.staff-kicker { margin: 0; color: #6858e8; font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.staff-page-count { padding: 8px 12px; border-radius: 99px; background: #e8eaf1; color: #49536a; font-size: 12px; font-weight: 700; }
+.staff-order-list { display: flex; gap: 18px; overflow-x: auto; padding: 2px 2px 14px; scroll-snap-type: x mandatory; }
+.staff-order-card, .staff-empty-state { padding: 22px; border: 1px solid #e0e4eb; border-radius: 16px; background: #fff; box-shadow: 0 8px 22px rgba(27,39,62,.05); }
+.staff-order-card { display: flex; flex: 0 0 min(340px, 85vw); flex-direction: column; gap: 10px; color: #172033; text-decoration: none; scroll-snap-align: start; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.staff-order-card:hover { transform: translateY(-2px); border-color: #bdb5ff; box-shadow: 0 12px 26px rgba(27,39,62,.1); }
+.staff-order-card:focus-visible, .staff-home-link:focus-visible, .staff-back-link:focus-visible { outline: 3px solid #a99dff; outline-offset: 3px; }
+.staff-order-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid #edf0f4; }
+.staff-order-card-heading h2 { margin: 5px 0 0; font-size: 18px; }
+.staff-order-card > p { margin: 0; color: #586277; font-size: 12px; }
+.staff-order-card .staff-order-customer { color: #172033; font-size: 14px; }
+.staff-order-card time { color: #6b7486; font-size: 11px; }
+.staff-order-open { display: flex; justify-content: space-between; margin-top: 5px; color: #5344ca; font-size: 12px; font-weight: 800; }
+.staff-order-detail-card { padding: 24px; border: 1px solid #e0e4eb; border-radius: 16px; background: #fff; box-shadow: 0 8px 22px rgba(27,39,62,.05); }
+.staff-back-link { display: inline-block; margin-bottom: 20px; color: #5344ca; font-size: 13px; font-weight: 800; text-decoration: none; }
+.staff-home-link { color: #d7d2ff; font-size: 12px; font-weight: 700; text-decoration: none; }
+.staff-home-link:hover, .staff-back-link:hover { text-decoration: underline; }
+.staff-order-heading { display: flex; justify-content: space-between; gap: 16px; padding-bottom: 15px; border-bottom: 1px solid #edf0f4; }
+.staff-order-heading h2 { margin: 5px 0; font-size: 20px; }
+.staff-order-heading time { color: #6b7486; font-size: 12px; }
+.staff-status { align-self: start; padding: 7px 10px; border-radius: 99px; background: #f1efff; color: #5344ca; font-size: 11px; font-weight: 700; }
+.staff-order-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; padding: 17px 0; }
+.staff-order-details h3 { margin: 0 0 9px; font-size: 13px; }
+.staff-order-details p { margin: 5px 0; color: #586277; font-size: 12px; overflow-wrap: anywhere; }
+.staff-order-details p span { float: right; }
+.staff-currency { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.staff-currency svg { display: block; width: 12px; height: 13px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.staff-order-details .staff-order-total { display: flex; justify-content: space-between; padding-top: 8px; border-top: 1px solid #edf0f4; color: #172033; }
+.staff-order-actions { display: flex; flex-wrap: wrap; gap: 14px; padding: 16px 0; border-top: 1px solid #edf0f4; }
+.staff-order-actions form { display: flex; align-items: end; flex-wrap: wrap; gap: 9px; }
+.staff-order-actions label { width: 100%; color: #49536a; font-size: 11px; font-weight: 700; }
+.staff-order-actions select { min-width: 180px; min-height: 38px; padding: 0 10px; border: 1px solid #d5dbe5; border-radius: 8px; background: #fff; color: #172033; }
+.staff-payment-locked { align-self: end; margin: 0; color: #24835e; font-size: 12px; font-weight: 700; }
+.staff-inventory-info { padding: 12px; border-radius: 9px; background: #e6f7ee; color: #176842; font-size: 12px; font-weight: 700; }
+.staff-inventory-alert { padding: 12px; border-radius: 9px; background: #fff3e4; color: #8a4c12; font-size: 12px; font-weight: 700; }
+.staff-order-history { border-top: 1px solid #edf0f4; padding-top: 13px; color: #536078; font-size: 12px; }
+.staff-order-history summary { cursor: pointer; color: #29364e; font-weight: 700; }
+.staff-order-history p { margin: 10px 0 0; }
+.staff-messages { display: grid; gap: 8px; margin-bottom: 18px; }
+.staff-messages p { margin: 0; padding: 12px 14px; border-radius: 8px; background: #e6f7ee; color: #176842; font-size: 13px; }
+.staff-messages p.error { background: #ffebee; color: #a0243a; }
+.staff-empty-state { text-align: center; }
+.staff-empty-state h2 { margin: 0 0 7px; }
+.staff-empty-state p { margin: 0; color: #657087; }
+.staff-pagination { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 22px; font-size: 12px; }
+.staff-pagination a { color: #5344ca; font-weight: 700; }
+
+@media (max-width: 760px) {
+    .staff-header { align-items: flex-start; }
+    .staff-header-user { align-items: flex-end; flex-direction: column; gap: 8px; }
+    .staff-heading { align-items: flex-start; flex-direction: column; }
+    .staff-order-details { grid-template-columns: 1fr; gap: 16px; }
+    .staff-order-actions form { width: 100%; }
+    .staff-order-detail-card { padding: 18px; }
+}

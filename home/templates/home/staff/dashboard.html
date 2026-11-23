@@ -1,0 +1,75 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111827">
+    <title>Staff Dashboard | GadgetHub</title>
+    <link rel="stylesheet" href="{% static 'home/staff.css' %}?v=20261123-3">
+</head>
+<body class="staff-dashboard">
+    <header class="staff-header">
+        <a class="staff-brand" href="{% url 'staff_dashboard' %}">Gadget<span>Hub</span></a>
+        <div class="staff-header-user">
+            <a class="staff-home-link" href="{% url 'account' %}">Personal details</a>
+            <a class="staff-home-link" href="{% url 'home' %}">Back to home</a>
+            <span>{{ user.get_full_name|default:user.username }}</span>
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit">Log out</button>
+            </form>
+        </div>
+    </header>
+
+    <main class="staff-shell">
+        <div class="staff-heading">
+            <div>
+                <p class="staff-kicker">ORDER OPERATIONS</p>
+                <h1>Staff Dashboard</h1>
+                <p>Open an order to view customer details and update its delivery or COD payment status.</p>
+            </div>
+            <span class="staff-page-count">{{ page_obj.paginator.count }} eligible orders</span>
+        </div>
+
+        {% if messages %}
+            <div class="staff-messages" aria-live="polite">
+                {% for message in messages %}<p class="{{ message.tags }}">{{ message }}</p>{% endfor %}
+            </div>
+        {% endif %}
+
+        <section class="staff-order-list" aria-label="Eligible customer orders">
+            {% for row in order_rows %}
+                {% with order=row.order %}
+                    <a class="staff-order-card" href="{% url 'staff_order_detail' order.pk %}">
+                        <div class="staff-order-card-heading">
+                            <div>
+                                <p class="staff-kicker">ORDER #{{ order.pk }}</p>
+                                <h2>{{ order.get_status_display }}</h2>
+                            </div>
+                            <span class="staff-status">{{ order.get_payment_status_display }}</span>
+                        </div>
+                        <p class="staff-order-customer"><strong>{{ order.full_name }}</strong></p>
+                        <p>{{ order.get_payment_method_display }} · ₹{{ order.total|floatformat:2 }}</p>
+                        <time datetime="{{ order.created_at|date:'c' }}">{{ order.created_at|date:"M j, Y, g:i A" }}</time>
+                        <span class="staff-order-open">View customer and order details <span aria-hidden="true">→</span></span>
+                    </a>
+                {% endwith %}
+            {% empty %}
+                <div class="staff-empty-state">
+                    <h2>No eligible orders</h2>
+                    <p>Non-cancelled COD orders and paid online orders will appear here.</p>
+                </div>
+            {% endfor %}
+        </section>
+
+        {% if page_obj.has_other_pages %}
+            <nav class="staff-pagination" aria-label="Order pages">
+                {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+                <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+                {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+            </nav>
+        {% endif %}
+    </main>
+</body>
+</html>

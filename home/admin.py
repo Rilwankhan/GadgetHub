@@ -9,8 +9,10 @@ from django.contrib.auth.models import Group
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import CharField, F, Q, Sum, Value
+from django.db.models.functions import Coalesce, NullIf
 from django.http import (
     FileResponse,
     HttpResponseBadRequest,
@@ -22,28 +24,36 @@ from django.utils.html import format_html, format_html_join
 from django.urls import path, reverse
 from django.utils import timezone
 
+from .activity import record_order_status_change
+from .forms import StaffCreationForm, StaffUpdateForm
+from .inventory import (
+    StockUnavailable,
+    order_stock_available,
+    reserve_order_stock,
+    restore_order_stock,
+)
 from .models import (
     Category,
     CustomerProfile,
     Order,
     OrderItem,
+    OrderPaymentEvent,
     OrderTrackingEvent,
     PaymentTransaction,
     Product,
 )
 from .pdf_reports import build_monthly_sales_report, build_order_details_report
-
+from .roles import STAFF_GROUP_NAME
 
 def can_view_order_data(user):
     return user.has_perm("home.view_order") or user.has_perm("home.change_order")
 
 
-def record_order_status_change(order, updated_by):
-    return OrderTrackingEvent.objects.create(
-        order=order,
-        status=order.status,
-        description=f"Your order is now {order.get_status_display().lower()}.",
-        updated_by=updated_by,
+def admin_visible_payment_transactions(queryset):
+    return queryset.exclude(
+        Q(status=PaymentTransaction.Status.CANCELLED)
+        | Q(order__status=Order.Status.CANCELLED)
+        | Q(order__payment_status=Order.PaymentStatus.CANCELLED)
     )
 
 
@@ -68,6 +78,11 @@ class GadgetHubAdminSite(admin.AdminSite):
                 name="order_updates",
             ),
             path(
+                "staff-actions/",
+                self.admin_view(self.staff_actions),
+                name="staff_actions",
+            ),
+            path(
                 "order-updates/<int:order_id>/advance/",
                 self.admin_view(self.advance_order),
                 name="order_advance",
@@ -82,15 +97,34 @@ class GadgetHubAdminSite(admin.AdminSite):
                 self.admin_view(self.order_details_pdf),
                 name="order_details_pdf",
             ),
+            path(
+                "staff/",
+                self.admin_view(self.staff_management),
+                name="staff_management",
+            ),
+            path(
+                "staff/<int:user_id>/edit/",
+                self.admin_view(self.edit_staff),
+                name="staff_edit",
+            ),
+            path(
+                "staff/<int:user_id>/toggle-active/",
+                self.admin_view(self.toggle_staff_active),
+                name="staff_toggle_active",
+            ),
         ]
         return custom_urls + super().get_urls()
 
     def index(self, request, extra_context=None):
         dashboard_orders = Order.objects.exclude(
-            status=Order.Status.CANCELLED
+            Q(status=Order.Status.CANCELLED)
+            | Q(payment_status=Order.PaymentStatus.CANCELLED)
         ).filter(
             Q(payment_method=Order.PaymentMethod.CASH_ON_DELIVERY)
             | Q(payment_status=Order.PaymentStatus.PAID)
+        )
+        payment_transactions = admin_visible_payment_transactions(
+            PaymentTransaction.objects.all()
         )
         store_summary = {
             "user_count": get_user_model().objects.count(),
@@ -110,19 +144,24 @@ class GadgetHubAdminSite(admin.AdminSite):
                     Order.PaymentStatus.PENDING,
                 ]
             ).aggregate(total=Sum("total"))["total"] or Decimal("0.00"),
-            "razorpay_payment_count": PaymentTransaction.objects.count(),
-            "failed_payment_count": PaymentTransaction.objects.filter(
+            "razorpay_payment_count": payment_transactions.count(),
+            "failed_payment_count": payment_transactions.filter(
                 status=PaymentTransaction.Status.FAILED
             ).count(),
-            "successful_payment_count": PaymentTransaction.objects.filter(
+            "successful_payment_count": payment_transactions.filter(
                 status=PaymentTransaction.Status.PAID
             ).count(),
-            "pending_payment_count": PaymentTransaction.objects.filter(
+            "pending_payment_count": payment_transactions.filter(
                 status=PaymentTransaction.Status.CREATED
             ).count(),
             "refunded_order_count": Order.objects.filter(
                 payment_status=Order.PaymentStatus.REFUNDED
-            ).count(),
+            )
+            .exclude(
+                Q(status=Order.Status.CANCELLED)
+                | Q(payment_status=Order.PaymentStatus.CANCELLED)
+            )
+            .count(),
             "current_month": timezone.localdate().strftime("%Y-%m"),
         }
         context = {
@@ -132,6 +171,80 @@ class GadgetHubAdminSite(admin.AdminSite):
             "dashboard_section": request.GET.get("section", "home"),
         }
         return super().index(request, extra_context=context)
+
+    def staff_management(self, request):
+        if not request.user.is_superuser:
+            return HttpResponseForbidden(
+                "Only administrators can manage staff accounts."
+            )
+        form = StaffCreationForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            staff_user = form.save()
+            messages.success(
+                request,
+                f"Staff account for {staff_user.get_full_name()} was created.",
+            )
+            return redirect("admin:staff_management")
+        staff_members = (
+            get_user_model()
+            .objects.filter(groups__name=STAFF_GROUP_NAME)
+            .order_by("first_name", "last_name", "username")
+        )
+        return render(
+            request,
+            "home/admin/staff_management.html",
+            {
+                **self.each_context(request),
+                "title": "Staff management",
+                "form": form,
+                "staff_members": staff_members,
+            },
+        )
+
+    def edit_staff(self, request, user_id):
+        if not request.user.is_superuser:
+            return HttpResponseForbidden(
+                "Only administrators can manage staff accounts."
+            )
+        staff_user = get_object_or_404(
+            get_user_model().objects.filter(groups__name=STAFF_GROUP_NAME),
+            pk=user_id,
+        )
+        form = StaffUpdateForm(request.POST or None, instance=staff_user)
+        if request.method == "POST" and form.is_valid():
+            form.save()
+            messages.success(request, "Staff account details were updated.")
+            return redirect("admin:staff_management")
+        return render(
+            request,
+            "home/admin/staff_edit.html",
+            {
+                **self.each_context(request),
+                "title": "Edit staff account",
+                "form": form,
+                "staff_user": staff_user,
+            },
+        )
+
+    def toggle_staff_active(self, request, user_id):
+        if not request.user.is_superuser:
+            return HttpResponseForbidden(
+                "Only administrators can manage staff accounts."
+            )
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        staff_user = get_object_or_404(
+            get_user_model().objects.filter(groups__name=STAFF_GROUP_NAME),
+            pk=user_id,
+        )
+        staff_user.is_active = not staff_user.is_active
+        staff_user.save(update_fields=["is_active"])
+        state = "activated" if staff_user.is_active else "deactivated"
+        messages.success(
+            request,
+            f"Staff account for {staff_user.get_full_name()} was {state}.",
+        )
+        return redirect("admin:staff_management")
 
     def monthly_sales_report(self, request):
         if not can_view_order_data(request.user):
@@ -157,6 +270,10 @@ class GadgetHubAdminSite(admin.AdminSite):
         end = timezone.make_aware(next_month)
         orders = (
             Order.objects.filter(created_at__gte=start, created_at__lt=end)
+            .exclude(
+                Q(status=Order.Status.CANCELLED)
+                | Q(payment_status=Order.PaymentStatus.CANCELLED)
+            )
             .select_related("user")
             .prefetch_related("items", "payment_transactions")
             .order_by("created_at", "pk")
@@ -176,9 +293,12 @@ class GadgetHubAdminSite(admin.AdminSite):
             )
 
         order = get_object_or_404(
-            Order.objects.select_related("user").prefetch_related(
-                "items", "payment_transactions", "tracking_events"
-            ),
+            Order.objects.exclude(
+                Q(status=Order.Status.CANCELLED)
+                | Q(payment_status=Order.PaymentStatus.CANCELLED)
+            )
+            .select_related("user")
+            .prefetch_related("items", "payment_transactions", "tracking_events"),
             pk=order_id,
         )
         report = build_order_details_report(order)
@@ -198,7 +318,10 @@ class GadgetHubAdminSite(admin.AdminSite):
         orders = (
             Order.objects.select_related("user")
             .prefetch_related("items")
-            .exclude(status=Order.Status.CANCELLED)
+            .exclude(
+                Q(status=Order.Status.CANCELLED)
+                | Q(payment_status=Order.PaymentStatus.CANCELLED)
+            )
             .filter(
                 Q(payment_method=Order.PaymentMethod.CASH_ON_DELIVERY)
                 | Q(payment_status=Order.PaymentStatus.PAID)
@@ -211,6 +334,105 @@ class GadgetHubAdminSite(admin.AdminSite):
         }
         return render(request, "home/admin/order_updates.html", context)
 
+    def staff_actions(self, request):
+        if not can_view_order_data(request.user):
+            return HttpResponseForbidden(
+                "You do not have permission to view staff activity."
+            )
+
+        actor_name = Coalesce(
+            NullIf("updated_by_name", Value("")),
+            "updated_by__username",
+            Value("Former staff member"),
+            output_field=CharField(),
+        )
+        status_events = (
+            OrderTrackingEvent.objects.filter(
+                updated_by__groups__name=STAFF_GROUP_NAME
+            )
+            .exclude(
+                Q(order__status=Order.Status.CANCELLED)
+                | Q(order__payment_status=Order.PaymentStatus.CANCELLED)
+            )
+            .order_by()
+            .annotate(
+                activity_type=Value("order_status", output_field=CharField()),
+                actor_name=actor_name,
+                event_status=F("status"),
+            )
+            .values(
+                "pk",
+                "order_id",
+                "created_at",
+                "activity_type",
+                "actor_name",
+                "previous_status",
+                "event_status",
+            )
+        )
+        payment_events = (
+            OrderPaymentEvent.objects.filter(
+                updated_by__groups__name=STAFF_GROUP_NAME
+            )
+            .exclude(
+                Q(order__status=Order.Status.CANCELLED)
+                | Q(order__payment_status=Order.PaymentStatus.CANCELLED)
+            )
+            .order_by()
+            .annotate(
+                activity_type=Value("cod_payment", output_field=CharField()),
+                actor_name=actor_name,
+                event_status=F("new_status"),
+            )
+            .values(
+                "pk",
+                "order_id",
+                "created_at",
+                "activity_type",
+                "actor_name",
+                "previous_status",
+                "event_status",
+            )
+        )
+        activities_page = Paginator(
+            status_events.union(payment_events).order_by("-created_at", "-pk"),
+            30,
+        ).get_page(request.GET.get("page"))
+        activities = list(activities_page.object_list)
+        orders_by_id = {
+            order.pk: order
+            for order in Order.objects.filter(
+                pk__in={activity["order_id"] for activity in activities}
+            ).prefetch_related("items")
+        }
+        order_status_labels = dict(Order.Status.choices)
+        payment_status_labels = dict(Order.PaymentStatus.choices)
+        for activity in activities:
+            activity["order"] = orders_by_id[activity["order_id"]]
+            labels = (
+                payment_status_labels
+                if activity["activity_type"] == "cod_payment"
+                else order_status_labels
+            )
+            activity["previous_status_label"] = labels.get(
+                activity["previous_status"],
+                activity["previous_status"] or "Order placed",
+            )
+            activity["event_status_label"] = labels.get(
+                activity["event_status"], activity["event_status"]
+            )
+
+        return render(
+            request,
+            "home/admin/staff_actions.html",
+            {
+                **self.each_context(request),
+                "title": "Staff actions",
+                "activities": activities,
+                "activities_page": activities_page,
+            },
+        )
+
     def advance_order(self, request, order_id):
         if not request.user.has_perm("home.change_order"):
             return HttpResponseForbidden(
@@ -220,29 +442,40 @@ class GadgetHubAdminSite(admin.AdminSite):
             return HttpResponseNotAllowed(["POST"])
 
         expected_status = request.POST.get("expected_status")
-        with transaction.atomic():
-            order = get_object_or_404(
-                Order.objects.select_for_update(),
-                pk=order_id,
+        try:
+            with transaction.atomic():
+                order = get_object_or_404(
+                    Order.objects.select_for_update(),
+                    pk=order_id,
+                )
+                if expected_status != order.status:
+                    messages.error(
+                        request,
+                        f"Order #{order.pk} changed. Refresh the page before updating it.",
+                    )
+                    return redirect("admin:order_updates")
+
+                next_status = order.next_status
+                if next_status is None:
+                    messages.error(
+                        request,
+                        f"Order #{order.pk} has no further delivery status.",
+                    )
+                    return redirect("admin:order_updates")
+
+                if not order.stock_deducted:
+                    reserve_order_stock(order)
+
+                previous_status = order.status
+                order.status = next_status
+                order.save(update_fields=["status"])
+                record_order_status_change(order, previous_status, request.user)
+        except StockUnavailable as error:
+            messages.error(
+                request,
+                f"Order #{order_id} cannot be progressed because inventory is unavailable: {error}",
             )
-            if expected_status != order.status:
-                messages.error(
-                    request,
-                    f"Order #{order.pk} changed. Refresh the page before updating it.",
-                )
-                return redirect("admin:order_updates")
-
-            next_status = order.next_status
-            if next_status is None:
-                messages.error(
-                    request,
-                    f"Order #{order.pk} has no further delivery status.",
-                )
-                return redirect("admin:order_updates")
-
-            order.status = next_status
-            order.save(update_fields=["status"])
-            record_order_status_change(order, request.user)
+            return redirect("admin:order_updates")
 
         messages.success(
             request,
@@ -282,10 +515,10 @@ class CategoryAdmin(admin.ModelAdmin):
 
 
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ["name", "category", "price", "is_active"]
+    list_display = ["name", "category", "price", "stock_quantity", "is_active"]
     list_filter = ["category", "is_active"]
     search_fields = ["name", "description", "category__name"]
-    list_editable = ["price", "is_active"]
+    list_editable = ["price", "stock_quantity", "is_active"]
     list_select_related = ["category"]
     list_per_page = 50
 
@@ -310,7 +543,31 @@ class OrderItemInline(admin.TabularInline):
 
 class OrderTrackingEventInline(admin.TabularInline):
     model = OrderTrackingEvent
-    fields = ["status", "description", "updated_by", "created_at"]
+    fields = [
+        "previous_status",
+        "status",
+        "description",
+        "updated_by_name",
+        "updated_by",
+        "created_at",
+    ]
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class OrderPaymentEventInline(admin.TabularInline):
+    model = OrderPaymentEvent
+    fields = [
+        "previous_status",
+        "new_status",
+        "updated_by_name",
+        "updated_by",
+        "created_at",
+    ]
     readonly_fields = fields
     extra = 0
     can_delete = False
@@ -337,6 +594,9 @@ class PaymentTransactionInline(admin.TabularInline):
 
     def has_add_permission(self, request, obj=None):
         return False
+
+    def get_queryset(self, request):
+        return admin_visible_payment_transactions(super().get_queryset(request))
 
 
 class OrderAdminForm(forms.ModelForm):
@@ -367,6 +627,14 @@ class OrderAdminForm(forms.ModelForm):
         status = self.cleaned_data["status"]
         if status not in (self.instance.status, self.instance.next_status):
             raise ValidationError("Move the order forward one delivery stage at a time.")
+        if (
+            status != self.instance.status
+            and not self.instance.stock_deducted
+            and not order_stock_available(self.instance)
+        ):
+            raise ValidationError(
+                "There is not enough available stock to advance this order."
+            )
         return status
 
 
@@ -437,6 +705,7 @@ class OrderAdmin(admin.ModelAdmin):
         OrderItemInline,
         PaymentTransactionInline,
         OrderTrackingEventInline,
+        OrderPaymentEventInline,
     ]
     date_hierarchy = "created_at"
     list_per_page = 50
@@ -448,13 +717,29 @@ class OrderAdmin(admin.ModelAdmin):
         return (
             super()
             .get_queryset(request)
-            .exclude(status=Order.Status.CANCELLED)
+            .exclude(
+                Q(status=Order.Status.CANCELLED)
+                | Q(payment_status=Order.PaymentStatus.CANCELLED)
+            )
             .filter(
-                Q(payment_method=Order.PaymentMethod.CASH_ON_DELIVERY)
+                Q(payment_status=Order.PaymentStatus.REFUNDED)
+                | Q(payment_method=Order.PaymentMethod.CASH_ON_DELIVERY)
                 | Q(payment_status=Order.PaymentStatus.PAID)
             )
             .prefetch_related("items", "payment_transactions")
         )
+
+    def changelist_view(self, request, extra_context=None):
+        if (
+            request.method == "GET"
+            and request.GET.get("payment_status__exact")
+            == Order.PaymentStatus.REFUNDED
+            and not self.get_queryset(request)
+            .filter(payment_status=Order.PaymentStatus.REFUNDED)
+            .exists()
+        ):
+            self.message_user(request, "No refunded orders found.", messages.INFO)
+        return super().changelist_view(request, extra_context=extra_context)
 
     @admin.display(description="Order PDF")
     def download_order_pdf(self, order):
@@ -561,9 +846,31 @@ class OrderAdmin(admin.ModelAdmin):
         previous_status = (
             Order.objects.only("status").get(pk=obj.pk).status if change else None
         )
+        if previous_status and obj.status != previous_status and not obj.stock_deducted:
+            locked_order = Order.objects.select_for_update().get(pk=obj.pk)
+            reserve_order_stock(locked_order)
+            obj.stock_deducted = locked_order.stock_deducted
         super().save_model(request, obj, form, change)
         if previous_status and obj.status != previous_status:
-            record_order_status_change(obj, request.user)
+            record_order_status_change(obj, previous_status, request.user)
+
+    def changeform_view(
+        self, request, object_id=None, form_url="", extra_context=None
+    ):
+        try:
+            return super().changeform_view(
+                request,
+                object_id=object_id,
+                form_url=form_url,
+                extra_context=extra_context,
+            )
+        except StockUnavailable as error:
+            self.message_user(
+                request,
+                f"Order stock could not be reserved: {error}",
+                messages.ERROR,
+            )
+            return redirect(request.path)
 
     def has_add_permission(self, request):
         return False
@@ -577,17 +884,23 @@ class OrderAdmin(admin.ModelAdmin):
     def cancel_selected_orders(self, request, queryset):
         cancelled_count = 0
         with transaction.atomic():
-            orders = Order.objects.select_for_update().filter(pk__in=queryset.values("pk"))
+            orders = (
+                Order.objects.select_for_update()
+                .filter(pk__in=queryset.values("pk"))
+                .order_by("pk")
+            )
             for order in orders:
                 if order.status == Order.Status.CANCELLED:
                     continue
+                previous_status = order.status
                 order.status = Order.Status.CANCELLED
                 order.save(update_fields=["status"])
-                OrderTrackingEvent.objects.create(
-                    order=order,
-                    status=Order.Status.CANCELLED,
-                    description="An administrator cancelled this order.",
-                    updated_by=request.user,
+                restore_order_stock(order)
+                record_order_status_change(
+                    order,
+                    previous_status,
+                    request.user,
+                    "An administrator cancelled this order.",
                 )
                 cancelled_count += 1
         self.message_user(
@@ -632,11 +945,31 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
     list_per_page = 50
 
+    def get_queryset(self, request):
+        return admin_visible_payment_transactions(
+            super().get_queryset(request)
+        )
+
     def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def changelist_view(self, request, extra_context=None):
+        empty_messages = {
+            PaymentTransaction.Status.PAID: "No successful payments found.",
+            PaymentTransaction.Status.CREATED: "No pending payments found.",
+            PaymentTransaction.Status.FAILED: "No failed payments found.",
+        }
+        status = request.GET.get("status__exact")
+        if (
+            request.method == "GET"
+            and status in empty_messages
+            and not self.get_queryset(request).filter(status=status).exists()
+        ):
+            self.message_user(request, empty_messages[status], messages.INFO)
+        return super().changelist_view(request, extra_context=extra_context)
 
 
 gadgethub_admin_site.register(get_user_model(), GadgetHubUserAdmin)

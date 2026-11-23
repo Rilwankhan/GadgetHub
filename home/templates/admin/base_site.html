@@ -25,6 +25,7 @@
     </details>
     {% endif %}
     {% if perms.home.view_paymenttransaction %}<a class="gh-nav-link {% if 'paymenttransaction' in admin_path %}is-active{% endif %}" href="{% url 'admin:home_paymenttransaction_changelist' %}"><span class="gh-nav-icon">◷</span><span>Transaction Overview</span></a>{% endif %}
+    {% if user.is_superuser %}<a class="gh-nav-link {% if 'staff' in admin_path %}is-active{% endif %}" href="{% url 'admin:staff_management' %}"><span class="gh-nav-icon">♙</span><span>Staff Management</span></a>{% endif %}
     <div class="gh-sidebar-label gh-sidebar-spaced">ACCESS</div>
     {% if perms.auth.view_user or perms.auth.view_group %}
     <details class="gh-nav-group" {% if 'auth/' in admin_path %}open{% endif %}>
@@ -45,6 +46,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/admin.css' %}?v=20261121-13">
+    <link rel="stylesheet" href="{% static 'home/admin.css' %}?v=20261123-2">
     <script src="{% static 'home/admin-nav.js' %}?v=20261119-1" defer></script>
 {% endblock %}

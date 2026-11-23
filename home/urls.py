@@ -61,6 +61,22 @@ urlpatterns = [
     path("accounts/logout/", LogoutView.as_view(), name="logout"),
     path("accounts/register/", views.register, name="register"),
     path("account/", views.account, name="account"),
+    path("staff/", views.staff_dashboard, name="staff_dashboard"),
+    path(
+        "staff/orders/<int:order_id>/",
+        views.staff_order_detail,
+        name="staff_order_detail",
+    ),
+    path(
+        "staff/orders/<int:order_id>/status/",
+        views.staff_advance_order,
+        name="staff_advance_order",
+    ),
+    path(
+        "staff/orders/<int:order_id>/cod-payment/",
+        views.staff_update_cod_payment,
+        name="staff_update_cod_payment",
+    ),
     path("orders/tracking/", views.order_tracking, name="order_tracking"),
     path("orders/<int:order_id>/cancel/", views.cancel_order, name="cancel_order"),
     path(

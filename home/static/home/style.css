@@ -839,6 +839,18 @@ p {
     border-top: 1px solid #eff1ef;
 }
 
+.product-stock {
+    margin: 8px 0 0;
+    color: #38745d;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.product-stock.is-out-of-stock,
+.product-detail-stock.is-out-of-stock {
+    color: #b33f4a;
+}
+
 .product-price {
     font-family: "Manrope", sans-serif;
     font-size: 17px;
@@ -865,6 +877,19 @@ p {
     color: var(--blue-dark);
 }
 
+.whatsapp-order:disabled,
+.quick-add:disabled,
+.atc:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.quick-add:disabled:hover {
+    transform: none;
+    background: #fff;
+    color: var(--ink);
+}
+
 .product-actions {
     margin-top: 10px;
 }
@@ -889,7 +914,7 @@ p {
 }
 
 .atc:disabled {
-    cursor: default;
+    cursor: not-allowed;
 }
 
 .atc__content {
@@ -1163,6 +1188,20 @@ p {
     display: inline-flex;
     margin-top: 27px;
     text-decoration: none;
+}
+
+.product-detail-stock {
+    margin: 18px 0 0;
+    color: #38745d;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.product-detail-out-of-stock {
+    display: inline-flex;
+    margin-top: 27px;
+    color: #b33f4a;
+    font-weight: 700;
 }
 
 .add-cart,

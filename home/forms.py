@@ -1,9 +1,24 @@
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from .models import CustomerProfile
+from .roles import STAFF_GROUP_NAME
+
+
+def _clean_employee_id(employee_id, profile=None):
+    employee_id = employee_id.strip()
+    existing_profiles = CustomerProfile.objects.filter(
+        employee_id__iexact=employee_id
+    ).exclude(employee_id="")
+    if profile is not None:
+        existing_profiles = existing_profiles.exclude(pk=profile.pk)
+    if existing_profiles.exists():
+        raise ValidationError("This employee ID is already in use.")
+    return employee_id
 
 
 class CustomerRegistrationForm(UserCreationForm):
@@ -40,6 +55,82 @@ class CustomerRegistrationForm(UserCreationForm):
         return user
 
 
+class StaffCreationForm(UserCreationForm):
+    email = forms.EmailField()
+    employee_id = forms.CharField(max_length=50, label="Employee ID")
+
+    class Meta(UserCreationForm.Meta):
+        model = get_user_model()
+        fields = ("username", "email")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["password2"].label = "Confirm password"
+        self.order_fields(
+            ("username", "employee_id", "email", "password1", "password2")
+        )
+
+    def clean_employee_id(self):
+        return _clean_employee_id(self.cleaned_data["employee_id"])
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.email = self.cleaned_data["email"]
+        user.is_active = True
+        user.is_staff = False
+        user.is_superuser = False
+        if commit:
+            with transaction.atomic():
+                user.save()
+                staff_group, _ = Group.objects.get_or_create(
+                    name=STAFF_GROUP_NAME
+                )
+                user.groups.add(staff_group)
+                CustomerProfile.objects.create(
+                    user=user,
+                    employee_id=self.cleaned_data["employee_id"],
+                )
+        return user
+
+
+class StaffUpdateForm(forms.ModelForm):
+    employee_id = forms.CharField(max_length=50, label="Employee ID")
+    mobile = forms.RegexField(
+        regex=r"^[0-9+() -]{7,30}$",
+        max_length=30,
+        required=False,
+        error_messages={"invalid": "Enter a valid mobile number."},
+        label="Mobile number",
+    )
+
+    class Meta:
+        model = get_user_model()
+        fields = ("username", "first_name", "last_name", "email")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.profile, _ = CustomerProfile.objects.get_or_create(
+            user=self.instance
+        )
+        self.fields["employee_id"].initial = self.profile.employee_id
+        self.fields["mobile"].initial = self.profile.mobile
+
+    def clean_employee_id(self):
+        return _clean_employee_id(
+            self.cleaned_data["employee_id"], profile=self.profile
+        )
+
+    def save(self, commit=True):
+        if not commit:
+            return super().save(commit=False)
+        with transaction.atomic():
+            user = super().save()
+            self.profile.employee_id = self.cleaned_data["employee_id"]
+            self.profile.mobile = self.cleaned_data["mobile"]
+            self.profile.save(update_fields=["employee_id", "mobile"])
+        return user
+
+
 class AdminProfileForm(forms.Form):
     username = forms.CharField(max_length=150)
     email = forms.EmailField()
@@ -70,19 +161,18 @@ class AdminProfileForm(forms.Form):
         return username
 
     def clean_employee_id(self):
-        employee_id = self.cleaned_data["employee_id"].strip()
-        profiles = CustomerProfile.objects.exclude(user=self.user)
-        if profiles.filter(employee_id__iexact=employee_id).exclude(employee_id="").exists():
-            raise ValidationError("This employee ID is already in use.")
-        return employee_id
+        return _clean_employee_id(
+            self.cleaned_data["employee_id"], profile=self.profile
+        )
 
     def save(self):
-        self.user.username = self.cleaned_data["username"]
-        self.user.email = self.cleaned_data["email"]
-        self.user.save(update_fields=["username", "email"])
-        self.profile.employee_id = self.cleaned_data["employee_id"]
-        self.profile.mobile = self.cleaned_data["mobile"]
-        self.profile.save(update_fields=["employee_id", "mobile"])
+        with transaction.atomic():
+            self.user.username = self.cleaned_data["username"]
+            self.user.email = self.cleaned_data["email"]
+            self.user.save(update_fields=["username", "email"])
+            self.profile.employee_id = self.cleaned_data["employee_id"]
+            self.profile.mobile = self.cleaned_data["mobile"]
+            self.profile.save(update_fields=["employee_id", "mobile"])
         return self.profile
 
 

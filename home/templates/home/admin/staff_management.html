@@ -1,0 +1,60 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="gh-dashboard">
+    <div class="gh-dashboard-heading">
+        <div>
+            <p class="gh-kicker">ACCESS</p>
+            <h1>Staff management</h1>
+            <p class="gh-muted">Create and manage limited-access staff accounts.</p>
+        </div>
+    </div>
+
+    <section class="gh-panel">
+        <div class="gh-panel-heading">
+            <div><p class="gh-kicker">NEW TEAM MEMBER</p><h2>Create a staff account</h2></div>
+        </div>
+        <form method="post" class="gh-staff-create-form">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="gh-button" type="submit">Create staff account</button>
+        </form>
+    </section>
+
+    <section class="gh-panel gh-tools-panel">
+        <div class="gh-panel-heading">
+            <div><p class="gh-kicker">TEAM</p><h2>Staff accounts</h2></div>
+        </div>
+        {% if staff_members %}
+            <div class="gh-staff-table-wrap">
+                <table class="gh-staff-table">
+                    <thead>
+                        <tr><th>Name</th><th>Username</th><th>Email</th><th>Status</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for staff in staff_members %}
+                            <tr>
+                                <td>{{ staff.get_full_name|default:staff.username }}</td>
+                                <td>{{ staff.username }}</td>
+                                <td>{{ staff.email|default:"—" }}</td>
+                                <td>{% if staff.is_active %}Active{% else %}Inactive{% endif %}</td>
+                                <td>
+                                    <a class="gh-text-link" href="{% url 'admin:staff_edit' staff.pk %}">Edit</a>
+                                    <form method="post" action="{% url 'admin:staff_toggle_active' staff.pk %}">
+                                        {% csrf_token %}
+                                        <button class="gh-text-link gh-staff-toggle" type="submit">
+                                            {% if staff.is_active %}Deactivate{% else %}Activate{% endif %}
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="gh-empty-state"><strong>No staff accounts yet</strong><small>New staff accounts will appear here.</small></div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

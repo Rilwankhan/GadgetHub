@@ -28,8 +28,12 @@ try {
     cart = savedCart
         .map(savedItem => {
             const product = products.find(item => item.id === savedItem.id);
+            const quantity = product
+                ? Math.min(savedItem.quantity, product.stock_quantity)
+                : 0;
             return product && Number.isInteger(savedItem.quantity) && savedItem.quantity > 0
-                ? { ...product, quantity: savedItem.quantity }
+                && quantity > 0
+                ? { ...product, quantity }
                 : null;
         })
         .filter(Boolean);
@@ -99,7 +103,7 @@ function renderProducts() {
                         alt="${escapeHtml(product.name)}"
                         loading="lazy">
                 </a>
-                <button class="quick-add" type="button" aria-label="Add ${escapeHtml(product.name)} to your bag" onclick="addToCart(${product.id})">
+                <button class="quick-add" type="button" aria-label="${product.stock_quantity > 0 ? `Add ${escapeHtml(product.name)} to your bag` : `${escapeHtml(product.name)} is out of stock`}" onclick="addToCart(${product.id})" ${product.stock_quantity > 0 ? "" : "disabled"}>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
             </div>
@@ -115,12 +119,15 @@ function renderProducts() {
                     <a class="product-card-price-link" href="${escapeHtml(product.url)}">
                         <div class="product-price">${formatPrice(product.price)}</div>
                     </a>
-                    <button class="whatsapp-order" type="button" onclick="orderProduct(${product.id})">
-                        Quick order <span aria-hidden="true">↗</span>
+                    <button class="whatsapp-order" type="button" onclick="orderProduct(${product.id})" ${product.stock_quantity > 0 ? "" : "disabled"}>
+                        ${product.stock_quantity > 0 ? "Quick order" : "Out of Stock"} <span aria-hidden="true">↗</span>
                     </button>
                 </div>
+                <p class="product-stock ${product.stock_quantity > 0 ? "" : "is-out-of-stock"}">
+                    ${product.stock_quantity > 0 ? `${product.stock_quantity} in stock` : "Out of Stock"}
+                </p>
                 <div class="product-actions">
-                    <button class="atc" type="button" aria-label="Add ${escapeHtml(product.name)} to cart" onclick="animateAddToCart(this, ${product.id})">
+                    <button class="atc" type="button" aria-label="${product.stock_quantity > 0 ? `Add ${escapeHtml(product.name)} to cart` : `${escapeHtml(product.name)} is out of stock`}" onclick="animateAddToCart(this, ${product.id})" ${product.stock_quantity > 0 ? "" : "disabled"}>
                         <span class="atc__content">
                             <span class="atc__cart" aria-hidden="true">
                                 <svg class="atc__icon" viewBox="0 0 24 24" fill="currentColor">
@@ -213,6 +220,7 @@ function renderCart() {
                         onclick="changeQuantity(${item.id}, -1)">−</button>
                     <span>${item.quantity}</span>
                     <button type="button" aria-label="Increase quantity"
+                        ${item.quantity >= item.stock_quantity ? "disabled" : ""}
                         onclick="changeQuantity(${item.id}, 1)">+</button>
                 </div>
             </div>
@@ -226,9 +234,17 @@ function addToCart(productId, openDrawer = true) {
     if (!product) {
         throw new Error(`Unknown product ID: ${productId}`);
     }
+    if (product.stock_quantity < 1) {
+        alert("This product is out of stock.");
+        return false;
+    }
 
     const cartItem = cart.find(item => item.id === productId);
     if (cartItem) {
+        if (cartItem.quantity >= product.stock_quantity) {
+            alert(`Only ${product.stock_quantity} ${product.name} available.`);
+            return false;
+        }
         if (cartItem.quantity >= 99) {
             alert("You can add up to 99 of each product.");
             return false;
@@ -362,6 +378,10 @@ function orderProduct(productId) {
     if (!product) {
         throw new Error(`Unknown product ID: ${productId}`);
     }
+    if (product.stock_quantity < 1) {
+        alert("This product is out of stock.");
+        return;
+    }
 
     const cartItem = cart.find(item => item.id === productId);
     if (!cartItem) {
@@ -378,6 +398,10 @@ function changeQuantity(productId, amount) {
         throw new Error(`Product ${productId} is not in the cart.`);
     }
 
+    if (amount > 0 && item.quantity >= item.stock_quantity) {
+        alert(`Only ${item.stock_quantity} ${item.name} available.`);
+        return;
+    }
     if (amount > 0 && item.quantity >= 99) {
         return;
     }

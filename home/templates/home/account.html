@@ -5,13 +5,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f7f8f6">
-    <title>{% if is_admin %}Admin account{% else %}My account{% endif %} | GadgetHub</title>
+    <title>{% if is_admin %}Admin account{% elif is_staff_profile %}Staff account{% else %}My account{% endif %} | GadgetHub</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261119-3">
 </head>
-<body class="account-page {% if is_admin %}admin-dashboard{% else %}customer-dashboard{% endif %}">
+<body class="account-page {% if is_employee_profile %}admin-dashboard{% else %}customer-dashboard{% endif %}">
     <header class="dashboard-header">
         <div class="dashboard-header-inner">
             <a href="{% url 'home' %}" class="logo">
@@ -19,7 +19,7 @@
             </a>
             <nav class="dashboard-nav" aria-label="Account navigation">
                 <a href="{% url 'home' %}">Continue shopping</a>
-                {% if request.user.is_staff %}<a href="{% url 'admin:index' %}">Admin dashboard</a>{% endif %}
+                {% if is_admin %}<a href="{% url 'admin:index' %}">Admin dashboard</a>{% elif is_staff_profile %}<a href="{% url 'staff_dashboard' %}">Staff dashboard</a>{% endif %}
                 <form method="post" action="{% url 'logout' %}">
                     {% csrf_token %}
                     <button type="submit">Log out</button>
@@ -35,6 +35,10 @@
                     <p class="eyebrow">YOUR GADGETHUB WORKSPACE</p>
                     <h1>Admin account.</h1>
                     <p>Manage your profile and jump into the store tools you use every day.</p>
+                {% elif is_staff_profile %}
+                    <p class="eyebrow">YOUR GADGETHUB WORKSPACE</p>
+                    <h1>Staff account.</h1>
+                    <p>Manage your personal and employee details.</p>
                 {% else %}
                     <p class="eyebrow">YOUR LITTLE CORNER OF GADGETHUB</p>
                     <h1>Welcome back.</h1>
@@ -53,6 +57,11 @@
                     <div class="panel-heading admin-profile-heading">
                         <span class="panel-icon panel-icon-blue" aria-hidden="true">GH</span>
                         <div><h2>Admin Profile</h2><p>Your staff account and contact details.</p></div>
+                    </div>
+                {% elif is_staff_profile %}
+                    <div class="panel-heading admin-profile-heading">
+                        <span class="panel-icon panel-icon-blue" aria-hidden="true">GH</span>
+                        <div><h2>Staff Profile</h2><p>Your employee and contact details.</p></div>
                     </div>
                 {% endif %}
                 <button
@@ -75,7 +84,7 @@
                 >
                     <div data-profile-summary {% if show_profile_edit %}hidden{% endif %}>
                         <dl class="personal-details-list">
-                            {% if request.user.is_staff %}
+                            {% if is_employee_profile %}
                                 <div><dt>Username</dt><dd>{{ request.user.username }}</dd></div>
                                 <div><dt>Email</dt><dd>{{ request.user.email|default:"Not provided" }}</dd></div>
                                 <div><dt>Employee ID</dt><dd>{{ profile.employee_id|default:"Not provided" }}</dd></div>
@@ -161,6 +170,17 @@
                     <a class="admin-management-link" href="{% url 'admin:home_paymenttransaction_changelist' %}">
                         <span aria-hidden="true">₹</span><strong>Payment details</strong><small>View Razorpay transaction records</small>
                     </a>
+                </div>
+            </section>
+        {% elif is_staff_profile %}
+            <section class="admin-management-panel" aria-labelledby="staff-dashboard-title">
+                <div class="admin-management-heading">
+                    <div>
+                        <p class="eyebrow">ORDER OPERATIONS</p>
+                        <h2 id="staff-dashboard-title">Staff dashboard</h2>
+                        <p>Review eligible customer orders and update delivery progress.</p>
+                    </div>
+                    <a class="button button-dark" href="{% url 'staff_dashboard' %}">Open staff dashboard <span aria-hidden="true">↗</span></a>
                 </div>
             </section>
         {% else %}
@@ -317,7 +337,7 @@
                             >
                                 {% csrf_token %}
                                 <button type="submit" class="button button-cancel-order">Cancel order</button>
-                                <span>Available for 48 hours after ordering, until the order ships.</span>
+                                <span>Available for 24 hours after ordering, until the order ships.</span>
                             </form>
                         </div>
                         <p
@@ -325,7 +345,7 @@
                             data-cancellation-expired
                             {% if order.status != "pending" and order.status != "confirmed" or order.can_be_cancelled %}hidden{% endif %}
                         >
-                            The 48-hour cancellation window has ended.
+                            The 24-hour cancellation window has ended.
                         </p>
                         <p
                             class="cancellation-note"

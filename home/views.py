@@ -16,12 +16,25 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.http import Http404, HttpResponse, JsonResponse
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
+from .activity import (
+    record_order_status_change,
+    record_payment_status_change,
+    user_display_name,
+)
 from .forms import AdminProfileForm, CustomerProfileForm, CustomerRegistrationForm
+from .inventory import (
+    StockUnavailable,
+    order_stock_available,
+    reserve_order_stock,
+    reserve_products,
+    restore_order_stock,
+)
 from .models import (
     Category,
     CustomerProfile,
@@ -36,13 +49,20 @@ from .payments import RazorpayError, create_order as create_razorpay_order
 from .payments import fetch_order_payments as fetch_razorpay_order_payments
 from .payments import fetch_payment as fetch_razorpay_payment
 from .payments import verify_signature as verify_razorpay_signature
+from .roles import is_gadgethub_staff, staff_member_required
 
 
 logger = logging.getLogger(__name__)
 
 
 def role_dashboard_url(user):
-    return reverse("admin:index") if user.is_staff else reverse("account")
+    if user.is_staff:
+        return reverse("admin:index")
+    return (
+        reverse("staff_dashboard")
+        if is_gadgethub_staff(user)
+        else reverse("account")
+    )
 
 
 class SharedLoginView(LoginView):
@@ -55,7 +75,8 @@ class SharedLoginView(LoginView):
 
     def get_success_url(self):
         if (
-            not self.request.user.is_staff
+            not is_gadgethub_staff(self.request.user)
+            and not self.request.user.is_staff
             and self.get_redirect_url() == f"{reverse('home')}?checkout=1"
         ):
             return self.get_redirect_url()
@@ -67,7 +88,14 @@ def home(request):
         Product.objects.filter(is_active=True)
         .select_related("category")
         .values(
-            "id", "name", "category__name", "price", "badge", "description", "image"
+            "id",
+            "name",
+            "category__name",
+            "price",
+            "badge",
+            "description",
+            "image",
+            "stock_quantity",
         )
     )
     for product in products:
@@ -142,10 +170,14 @@ def register(request):
 def account(request):
     profile, _ = CustomerProfile.objects.get_or_create(user=request.user)
     is_admin = request.user.is_staff
-    profile_form_class = AdminProfileForm if is_admin else CustomerProfileForm
+    is_staff_profile = is_gadgethub_staff(request.user)
+    is_employee_profile = is_admin or is_staff_profile
+    profile_form_class = (
+        AdminProfileForm if is_employee_profile else CustomerProfileForm
+    )
     profile_form_kwargs = (
         {"user": request.user, "profile": profile}
-        if is_admin
+        if is_employee_profile
         else {"instance": profile, "user": request.user}
     )
     profile_form = profile_form_class(**profile_form_kwargs)
@@ -172,7 +204,7 @@ def account(request):
                 update_session_auth_hash(request, user)
                 messages.success(request, "Your password was updated.")
                 return redirect("account")
-    if not is_admin:
+    if not is_employee_profile:
         paid_transactions = PaymentTransaction.objects.filter(
             order_id=OuterRef("pk"),
             status=PaymentTransaction.Status.PAID,
@@ -207,8 +239,197 @@ def account(request):
             "show_profile_details": show_profile_details,
             "show_profile_edit": show_profile_edit,
             "is_admin": is_admin,
+            "is_staff_profile": is_staff_profile,
+            "is_employee_profile": is_employee_profile,
         },
     )
+
+
+@staff_member_required
+@require_GET
+def staff_dashboard(request):
+    paginator = Paginator(
+        staff_visible_orders()
+        .select_related("user")
+        .prefetch_related("items", "payment_transactions", "tracking_events", "payment_events")
+        .order_by("-created_at", "-pk"),
+        25,
+    )
+    page_obj = paginator.get_page(request.GET.get("page"))
+    order_rows = [
+        {
+            "order": order,
+            "can_advance": (
+                order.status != Order.Status.CANCELLED
+                and order.next_status is not None
+                and (
+                    order.payment_method == Order.PaymentMethod.CASH_ON_DELIVERY
+                    or order.payment_status == Order.PaymentStatus.PAID
+                )
+            ),
+            "can_update_cod_payment": (
+                order.payment_method == Order.PaymentMethod.CASH_ON_DELIVERY
+                and order.status != Order.Status.CANCELLED
+            ),
+        }
+        for order in page_obj.object_list
+    ]
+    return render(
+        request,
+        "home/staff/dashboard.html",
+        {"page_obj": page_obj, "order_rows": order_rows},
+    )
+
+
+def staff_visible_orders():
+    return Order.objects.exclude(
+        Q(status=Order.Status.CANCELLED)
+        | Q(payment_status=Order.PaymentStatus.CANCELLED)
+    ).filter(
+        Q(payment_method=Order.PaymentMethod.CASH_ON_DELIVERY)
+        | Q(
+            payment_method=Order.PaymentMethod.RAZORPAY,
+            payment_status=Order.PaymentStatus.PAID,
+        )
+    )
+
+
+@staff_member_required
+@require_GET
+def staff_order_detail(request, order_id):
+    order = get_object_or_404(
+        staff_visible_orders()
+        .select_related("user")
+        .prefetch_related(
+            "items", "payment_transactions", "tracking_events", "payment_events"
+        ),
+        pk=order_id,
+    )
+    inventory_available = order_stock_available(order)
+    order_row = {
+        "order": order,
+        "inventory_available": inventory_available,
+        "can_advance": (
+            order.next_status is not None
+            and inventory_available
+            and (
+                order.payment_method == Order.PaymentMethod.CASH_ON_DELIVERY
+                or order.payment_status == Order.PaymentStatus.PAID
+            )
+        ),
+        "can_update_cod_payment": (
+            order.payment_method == Order.PaymentMethod.CASH_ON_DELIVERY
+        ),
+    }
+    return render(
+        request,
+        "home/staff/order_detail.html",
+        {"row": order_row},
+    )
+
+
+@staff_member_required
+@require_POST
+def staff_advance_order(request, order_id):
+    try:
+        with transaction.atomic():
+            order = get_object_or_404(
+                Order.objects.select_for_update().prefetch_related("items"),
+                pk=order_id,
+            )
+            if (
+                order.payment_method != Order.PaymentMethod.CASH_ON_DELIVERY
+                and order.payment_status != Order.PaymentStatus.PAID
+            ):
+                messages.error(request, "Only COD or paid orders can be processed.")
+                return redirect("staff_order_detail", order_id=order.pk)
+            if request.POST.get("expected_status") != order.status:
+                messages.error(
+                    request,
+                    f"Order #{order.pk} changed. Refresh before updating it.",
+                )
+                return redirect("staff_order_detail", order_id=order.pk)
+            new_status = request.POST.get("status")
+            if new_status not in (
+                Order.Status.CONFIRMED,
+                Order.Status.SHIPPED,
+                Order.Status.OUT_FOR_DELIVERY,
+                Order.Status.DELIVERED,
+            ) or new_status != order.next_status:
+                messages.error(
+                    request,
+                    "Choose the next available order status.",
+                )
+                return redirect("staff_order_detail", order_id=order.pk)
+
+            if not order.stock_deducted:
+                reserve_order_stock(order)
+
+            previous_status = order.status
+            order.status = new_status
+            order.save(update_fields=["status"])
+            record_order_status_change(order, previous_status, request.user)
+    except StockUnavailable as error:
+        messages.error(
+            request,
+            f"Order #{order_id} cannot be progressed because inventory is unavailable: {error}",
+        )
+        return redirect("staff_order_detail", order_id=order_id)
+
+    messages.success(
+        request,
+        f"Order #{order.pk} is now {order.get_status_display().lower()}.",
+    )
+    return redirect("staff_order_detail", order_id=order.pk)
+
+
+@staff_member_required
+@require_POST
+def staff_update_cod_payment(request, order_id):
+    with transaction.atomic():
+        order = get_object_or_404(
+            Order.objects.select_for_update(),
+            pk=order_id,
+            payment_method=Order.PaymentMethod.CASH_ON_DELIVERY,
+        )
+        if order.status == Order.Status.CANCELLED:
+            messages.error(request, "Cancelled orders cannot be updated.")
+            return redirect("staff_order_detail", order_id=order.pk)
+
+        new_status = request.POST.get("payment_status")
+        allowed_statuses = {
+            Order.PaymentStatus.PENDING,
+            Order.PaymentStatus.PAID,
+            Order.PaymentStatus.FAILED,
+        }
+        if new_status not in allowed_statuses:
+            messages.error(request, "Choose a valid COD payment status.")
+            return redirect("staff_order_detail", order_id=order.pk)
+        if (
+            order.payment_status == Order.PaymentStatus.PAID
+            and new_status != Order.PaymentStatus.PAID
+        ):
+            messages.error(
+                request,
+                "A paid COD order cannot be changed by staff.",
+            )
+            return redirect("staff_order_detail", order_id=order.pk)
+        if new_status != order.payment_status:
+            previous_status = order.payment_status
+            order.payment_status = new_status
+            order.save(update_fields=["payment_status"])
+            record_payment_status_change(
+                order,
+                previous_status,
+                new_status,
+                request.user,
+            )
+
+    messages.success(
+        request,
+        f"Order #{order.pk} COD payment is {order.get_payment_status_display().lower()}.",
+    )
+    return redirect("staff_order_detail", order_id=order.pk)
 
 
 @login_required
@@ -250,17 +471,19 @@ def cancel_order(request, order_id):
             messages.error(
                 request,
                 "This order can no longer be cancelled. Orders can be cancelled "
-                "within 48 hours, before they are shipped.",
+                "within 24 hours, before they are shipped.",
             )
             return redirect("account")
 
+        previous_status = order.status
         order.status = Order.Status.CANCELLED
         order.save(update_fields=["status"])
-        OrderTrackingEvent.objects.create(
-            order=order,
-            status=order.status,
-            description="You cancelled this order.",
-            updated_by=request.user,
+        restore_order_stock(order)
+        record_order_status_change(
+            order,
+            previous_status,
+            request.user,
+            "You cancelled this order.",
         )
 
     messages.success(request, f"Order #{order.pk} has been cancelled.")
@@ -424,16 +647,7 @@ def place_order(request):
 
         payment_transaction = None
         with transaction.atomic():
-            products = {
-                product.pk: product
-                for product in Product.objects.select_for_update()
-                .filter(pk__in=quantities, is_active=True)
-            }
-            if len(products) != len(quantities):
-                return JsonResponse(
-                    {"error": "A product is no longer available. Refresh the store and try again."},
-                    status=400,
-                )
+            products = reserve_products(quantities)
             total = sum(
                 (products[pk].price * quantity for pk, quantity in quantities.items()),
                 Decimal("0.00"),
@@ -451,6 +665,7 @@ def place_order(request):
                     else Order.PaymentStatus.UNPAID
                 ),
                 total=total,
+                stock_deducted=True,
                 location_latitude=latitude,
                 location_longitude=longitude,
             )
@@ -489,15 +704,21 @@ def place_order(request):
             logger.exception(
                 "Could not create Razorpay order for GadgetHub order %s.", order.pk
             )
-            payment_transaction.status = PaymentTransaction.Status.FAILED
-            payment_transaction.error_description = (
-                "Razorpay order creation did not complete."
-            )
-            payment_transaction.save(
-                update_fields=["status", "error_description", "updated_at"]
-            )
-            order.payment_status = Order.PaymentStatus.FAILED
-            order.save(update_fields=["payment_status"])
+            with transaction.atomic():
+                locked_order = Order.objects.select_for_update().get(pk=order.pk)
+                locked_transaction = PaymentTransaction.objects.select_for_update().get(
+                    pk=payment_transaction.pk
+                )
+                locked_transaction.status = PaymentTransaction.Status.FAILED
+                locked_transaction.error_description = (
+                    "Razorpay order creation did not complete."
+                )
+                locked_transaction.save(
+                    update_fields=["status", "error_description", "updated_at"]
+                )
+                locked_order.payment_status = Order.PaymentStatus.FAILED
+                locked_order.save(update_fields=["payment_status"])
+                restore_order_stock(locked_order)
             return JsonResponse(
                 {"error": "Could not start online payment. Please try again."},
                 status=502,
@@ -522,6 +743,8 @@ def place_order(request):
                 },
             }
         )
+    except StockUnavailable as error:
+        return JsonResponse({"error": str(error)}, status=409)
     except (
         json.JSONDecodeError,
         UnicodeDecodeError,
@@ -631,6 +854,7 @@ def verify_razorpay_payment(request):
                 )
                 locked_order.payment_status = Order.PaymentStatus.FAILED
                 locked_order.save(update_fields=["payment_status"])
+                restore_order_stock(locked_order)
         return JsonResponse({"error": "Razorpay reported that payment failed."}, status=400)
 
     if (
@@ -641,41 +865,95 @@ def verify_razorpay_payment(request):
             {"error": "Razorpay has not captured this payment yet."}, status=409
         )
 
-    with transaction.atomic():
-        locked_order = Order.objects.select_for_update().get(pk=order.pk)
-        locked_transaction = PaymentTransaction.objects.select_for_update().get(
-            pk=payment_transaction.pk
-        )
-        if locked_order.payment_status == Order.PaymentStatus.PAID:
-            if locked_transaction.razorpay_payment_id == payment_id:
-                return JsonResponse(
-                    {"order_id": locked_order.pk, "payment_status": "paid"}
-                )
-            return JsonResponse(
-                {"error": "This order has already been paid."}, status=409
+    try:
+        with transaction.atomic():
+            locked_order = Order.objects.select_for_update().get(pk=order.pk)
+            locked_transaction = PaymentTransaction.objects.select_for_update().get(
+                pk=payment_transaction.pk
             )
-        locked_transaction.status = PaymentTransaction.Status.PAID
-        locked_transaction.razorpay_payment_id = payment_id
-        locked_transaction.signature = signature
-        locked_transaction.error_code = ""
-        locked_transaction.error_description = ""
-        locked_transaction.save(
-            update_fields=[
-                "status",
-                "razorpay_payment_id",
-                "signature",
-                "error_code",
-                "error_description",
-                "updated_at",
-            ]
-        )
-        locked_order.payment_status = Order.PaymentStatus.PAID
-        locked_order.status = Order.Status.CONFIRMED
-        locked_order.save(update_fields=["payment_status", "status"])
-        OrderTrackingEvent.objects.create(
-            order=locked_order,
-            status=Order.Status.CONFIRMED,
-            description="Payment received and verified. Your order is confirmed.",
+            if locked_order.payment_status == Order.PaymentStatus.PAID:
+                if locked_transaction.razorpay_payment_id == payment_id:
+                    return JsonResponse(
+                        {"order_id": locked_order.pk, "payment_status": "paid"}
+                    )
+                return JsonResponse(
+                    {"error": "This order has already been paid."}, status=409
+                )
+            reserve_order_stock(locked_order)
+            previous_status = locked_order.status
+            locked_transaction.status = PaymentTransaction.Status.PAID
+            locked_transaction.razorpay_payment_id = payment_id
+            locked_transaction.signature = signature
+            locked_transaction.error_code = ""
+            locked_transaction.error_description = ""
+            locked_transaction.save(
+                update_fields=[
+                    "status",
+                    "razorpay_payment_id",
+                    "signature",
+                    "error_code",
+                    "error_description",
+                    "updated_at",
+                ]
+            )
+            locked_order.payment_status = Order.PaymentStatus.PAID
+            locked_order.status = Order.Status.CONFIRMED
+            locked_order.save(update_fields=["payment_status", "status"])
+            record_order_status_change(
+                locked_order,
+                previous_status,
+                None,
+                "Payment received and verified. Your order is confirmed.",
+            )
+    except StockUnavailable:
+        with transaction.atomic():
+            locked_order = Order.objects.select_for_update().get(pk=order.pk)
+            locked_transaction = PaymentTransaction.objects.select_for_update().get(
+                pk=payment_transaction.pk
+            )
+            if locked_order.payment_status == Order.PaymentStatus.PAID:
+                if locked_transaction.razorpay_payment_id == payment_id:
+                    return JsonResponse(
+                        {"order_id": locked_order.pk, "payment_status": "paid"}
+                    )
+                return JsonResponse(
+                    {"error": "This order has already been paid."}, status=409
+                )
+            locked_transaction.status = PaymentTransaction.Status.PAID
+            locked_transaction.razorpay_payment_id = payment_id
+            locked_transaction.signature = signature
+            locked_transaction.error_description = (
+                "Payment was captured after stock became unavailable. "
+                "Admin review is required."
+            )
+            locked_transaction.save(
+                update_fields=[
+                    "status",
+                    "razorpay_payment_id",
+                    "signature",
+                    "error_description",
+                    "updated_at",
+                ]
+            )
+            locked_order.payment_status = Order.PaymentStatus.PAID
+            locked_order.save(update_fields=["payment_status"])
+            OrderTrackingEvent.objects.create(
+                order=locked_order,
+                previous_status=locked_order.status,
+                status=locked_order.status,
+                description=(
+                    "Payment was captured, but inventory is unavailable. "
+                    "Administrator review is required."
+                ),
+            )
+        return JsonResponse(
+            {
+                "error": (
+                    "Payment was confirmed, but the items are no longer in "
+                    "stock. Contact the store; do not retry payment."
+                )
+            },
+            status=409,
         )
 
     return JsonResponse({"order_id": order.pk, "payment_status": "paid"})
@@ -848,6 +1126,7 @@ def _update_payment_attempt(request, target_status):
             ]
         )
         order.save(update_fields=["payment_status"])
+        restore_order_stock(order)
     return JsonResponse({"order_id": order.pk, "payment_status": effective_status})
 
 

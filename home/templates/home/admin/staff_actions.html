@@ -1,0 +1,79 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    › Staff actions
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main" class="gh-staff-actions">
+    <div class="gh-audit-heading">
+        <div>
+            <p class="gh-kicker">STAFF AUDIT TRAIL</p>
+            <h1>Staff actions</h1>
+            <p>Order status and COD payment changes recorded by staff.</p>
+        </div>
+        <a class="gh-button gh-button-quiet" href="{% url 'admin:index' %}">Back to dashboard</a>
+    </div>
+
+    <section class="gh-panel gh-audit-panel" aria-label="Staff activity history">
+        {% for activity in activities %}
+            <article class="gh-audit-entry">
+                <span class="gh-activity-mark {% if activity.activity_type == 'cod_payment' %}is-add{% endif %}" aria-hidden="true">
+                    {% if activity.activity_type == "cod_payment" %}
+                        <svg viewBox="0 0 24 24" focusable="false"><path d="M6 5h12M6 9h12M9 5v8m0-8h2.5a3.5 3.5 0 0 1 0 7H9l7 7"></path></svg>
+                    {% else %}
+                        ↗
+                    {% endif %}
+                </span>
+                <div class="gh-audit-content">
+                    <div class="gh-audit-title">
+                        <strong>
+                            <a href="{% url 'admin:home_order_change' activity.order_id %}">Order #{{ activity.order_id }}</a>
+                            · {% if activity.activity_type == "cod_payment" %}COD payment{% else %}Order status{% endif %}
+                        </strong>
+                        <time>{{ activity.created_at|date:"M j, Y · g:i A" }}</time>
+                    </div>
+                    <p class="gh-audit-change">
+                        {{ activity.previous_status_label }} → {{ activity.event_status_label }}
+                    </p>
+                    <small>
+                        Updated by {{ activity.actor_name }} · {{ activity.order.full_name }} ·
+                        <span class="gh-audit-amount" aria-label="Indian rupees {{ activity.order.total|floatformat:2 }}">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h12M6 9h12M9 5v8m0-8h2.5a3.5 3.5 0 0 1 0 7H9l7 7"></path></svg>
+                            {{ activity.order.total|floatformat:2 }}
+                        </span>
+                    </small>
+                    <div class="gh-audit-products">
+                        <strong>Items</strong>
+                        {% for item in activity.order.items.all %}
+                            <span>{{ item.product_name }} × {{ item.quantity }}</span>
+                        {% empty %}
+                            <span>No product details recorded.</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </article>
+        {% empty %}
+            <div class="gh-empty-state">
+                <strong>No staff actions recorded yet</strong>
+                <small>Order and COD payment updates by staff will appear here.</small>
+            </div>
+        {% endfor %}
+
+        {% if activities_page.has_other_pages %}
+            <nav class="gh-audit-pagination" aria-label="Staff activity pages">
+                {% if activities_page.has_previous %}
+                    <a href="?page={{ activities_page.previous_page_number }}">← Previous</a>
+                {% endif %}
+                <span>Page {{ activities_page.number }} of {{ activities_page.paginator.num_pages }}</span>
+                {% if activities_page.has_next %}
+                    <a href="?page={{ activities_page.next_page_number }}">Next →</a>
+                {% endif %}
+            </nav>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

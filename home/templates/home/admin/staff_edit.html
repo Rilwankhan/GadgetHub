@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="gh-dashboard">
+    <div class="gh-dashboard-heading">
+        <div>
+            <p class="gh-kicker">STAFF MANAGEMENT</p>
+            <h1>Edit {{ staff_user.get_full_name|default:staff_user.username }}</h1>
+            <p class="gh-muted">Update this staff member’s contact details.</p>
+        </div>
+        <a class="gh-button gh-button-quiet" href="{% url 'admin:staff_management' %}">Back to staff</a>
+    </div>
+    <section class="gh-panel">
+        <form method="post" class="gh-staff-create-form">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="gh-button" type="submit">Save changes</button>
+        </form>
+    </section>
+</div>
+{% endblock %}

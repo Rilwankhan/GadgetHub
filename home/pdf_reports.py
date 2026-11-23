@@ -463,22 +463,23 @@ def build_order_details_report(order):
 
 def build_monthly_sales_report(month, orders):
     styles = _styles()
-    order_list = list(orders)
-    active_orders = [order for order in order_list if order.status != order.Status.CANCELLED]
-    cancelled_orders = [order for order in order_list if order.status == order.Status.CANCELLED]
+    order_list = [
+        order for order in orders if order.status != order.Status.CANCELLED
+        and order.payment_status != order.PaymentStatus.CANCELLED
+    ]
     refunded_orders = [
         order
-        for order in active_orders
+        for order in order_list
         if order.payment_status == order.PaymentStatus.REFUNDED
     ]
     paid_orders = [
         order
-        for order in active_orders
+        for order in order_list
         if order.payment_status == order.PaymentStatus.PAID
     ]
     unpaid_orders = [
         order
-        for order in active_orders
+        for order in order_list
         if order.payment_status
         not in (order.PaymentStatus.PAID, order.PaymentStatus.REFUNDED)
     ]
@@ -491,7 +492,7 @@ def build_monthly_sales_report(month, orders):
             styles["subtitle"],
         ),
         _paragraph(
-            "Order value includes all orders placed in the selected month. Paid, outstanding, cancelled, and refunded totals are shown separately.",
+            "Order value includes non-cancelled orders placed in the selected month. Paid, outstanding, and refunded totals are shown separately.",
             styles["body"],
         ),
         Spacer(1, 3 * mm),
@@ -501,7 +502,6 @@ def build_monthly_sales_report(month, orders):
         ["Order value", _money(total(order_list))],
         ["Paid order value", _money(total(paid_orders))],
         ["Outstanding order value", _money(total(unpaid_orders))],
-        ["Cancelled order value", _money(total(cancelled_orders))],
         ["Refunded order value", _money(total(refunded_orders))],
     ]
     summary_rows = [
