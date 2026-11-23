@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import timedelta
 
 from django.conf import settings
@@ -5,6 +7,10 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
 from django.utils import timezone
+
+OTP_VALID_MINUTES = 5
+OTP_RESEND_COOLDOWN_MINUTES = 2
+OTP_MAX_ATTEMPTS = 5
 
 
 class Category(models.Model):
@@ -270,6 +276,63 @@ class OrderPaymentEvent(models.Model):
             f"Order #{self.order_id}: payment "
             f"{self.get_previous_status_display()} to {self.get_new_status_display()}"
         )
+
+
+class EmailOTP(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="email_otp",
+    )
+    # SHA-256 hex digest of the plain OTP — never stored in plain text
+    otp_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(default=timezone.now)
+    # Timestamp of the most recent send/resend for cooldown enforcement
+    last_sent_at = models.DateTimeField(default=timezone.now)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    @staticmethod
+    def _hash(plain_otp: str) -> str:
+        return hashlib.sha256(plain_otp.encode()).hexdigest()
+
+    @classmethod
+    def generate_for_user(cls, user):
+        """Create (or replace) an OTP record and return the plain 6-digit code."""
+        plain = f"{secrets.randbelow(1_000_000):06d}"
+        now = timezone.now()
+        cls.objects.update_or_create(
+            user=user,
+            defaults={
+                "otp_hash": cls._hash(plain),
+                "created_at": now,
+                "last_sent_at": now,
+                "attempts": 0,
+            },
+        )
+        return plain
+
+    @property
+    def is_expired(self):
+        return timezone.now() > self.created_at + timedelta(minutes=OTP_VALID_MINUTES)
+
+    @property
+    def is_locked(self):
+        return self.attempts >= OTP_MAX_ATTEMPTS
+
+    @property
+    def resend_available_at(self):
+        return self.last_sent_at + timedelta(minutes=OTP_RESEND_COOLDOWN_MINUTES)
+
+    @property
+    def can_resend(self):
+        return timezone.now() >= self.resend_available_at
+
+    def check_otp(self, plain_otp: str) -> bool:
+        """Constant-time comparison against the stored hash."""
+        return secrets.compare_digest(self._hash(plain_otp), self.otp_hash)
+
+    def __str__(self):
+        return f"OTP for {self.user.username}"
 
 
 class OrderItem(models.Model):

@@ -1,0 +1,17 @@
+Hi {{ user.first_name|default:user.username }},
+
+Welcome to **GadgetHub!** We're excited to have you join us.
+
+To complete your registration and activate your account, please use the following **6-digit verification code**:
+
+# {{ otp }}
+
+This verification code is valid for **{{ valid_minutes }} minutes**. For your security, please do not share this code with anyone.
+
+If you did not create a GadgetHub account, you can safely ignore this email. No further action is required.
+
+Thank you for choosing GadgetHub!
+
+Best regards,  
+The GadgetHub Team
+Your trusted shopping destination.

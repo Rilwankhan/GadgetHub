@@ -9,15 +9,16 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
+from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
@@ -28,6 +29,7 @@ from .activity import (
     user_display_name,
 )
 from .forms import AdminProfileForm, CustomerProfileForm, CustomerRegistrationForm
+from .forms import FriendlyPasswordChangeForm, FriendlySetPasswordForm
 from .inventory import (
     StockUnavailable,
     order_stock_available,
@@ -38,6 +40,8 @@ from .inventory import (
 from .models import (
     Category,
     CustomerProfile,
+    EmailOTP,
+    OTP_MAX_ATTEMPTS,
     Order,
     OrderItem,
     OrderTrackingEvent,
@@ -71,7 +75,50 @@ class SharedLoginView(LoginView):
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated:
             return redirect(role_dashboard_url(request.user))
+        if request.session.pop("password_reset_complete_notice", False):
+            messages.success(
+                request,
+                "Your password has been changed. Sign in with your new password.",
+            )
         return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        user = form.get_user()
+        # Staff (GadgetHub Staff group) and Django admin (is_staff) are exempt
+        # from email verification — they are always allowed through.
+        if (
+            not user.is_active
+            and not user.is_staff
+            and not is_gadgethub_staff(user)
+        ):
+            return redirect(
+                reverse("verify_otp") + f"?uid={user.pk}"
+            )
+        return super().form_valid(form)
+
+    def form_invalid(self, form):
+        # Django's ModelBackend refuses to authenticate is_active=False users,
+        # so form_valid is never reached for them. Detect that case here:
+        # if the credentials match an inactive normal customer, redirect to
+        # the OTP page instead of showing a generic error.
+        username = form.data.get("username", "").strip()
+        password = form.data.get("password", "")
+        if username and password:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            try:
+                user = User.objects.get(
+                    username=username,
+                    is_active=False,
+                    is_staff=False,
+                )
+                if user.check_password(password) and not is_gadgethub_staff(user):
+                    return redirect(
+                        reverse("verify_otp") + f"?uid={user.pk}"
+                    )
+            except (User.DoesNotExist, User.MultipleObjectsReturned):
+                pass
+        return super().form_invalid(form)
 
     def get_success_url(self):
         if (
@@ -146,24 +193,418 @@ def product_detail(request, product_id):
     return render(request, "home/product_detail.html", {"product": product})
 
 
+def _send_otp_email(user, plain_otp):
+    try:
+        send_mail(
+            subject=render_to_string(
+                "home/verification_email_subject.txt",
+                {"user": user},
+            ).strip(),
+            message=render_to_string(
+                "home/verification_email.txt",
+                {"user": user, "otp": plain_otp, "valid_minutes": 5},
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to send OTP email to user %s.", user.pk)
+        return False
+
+
 def register(request):
     if request.user.is_authenticated:
         return redirect(role_dashboard_url(request.user))
     form = CustomerRegistrationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        user = form.save()
-        login(request, user)
-        if request.POST.get("next") == f"{reverse('home')}?checkout=1":
-            return redirect(f"{reverse('home')}?checkout=1")
-        return redirect("account")
+        with transaction.atomic():
+            user = form.save()
+            plain_otp = EmailOTP.generate_for_user(user)
+        sent = _send_otp_email(user, plain_otp)
+        if not sent:
+            user.delete()
+            messages.error(
+                request,
+                "We could not send a verification email to that address. "
+                "Please check the email address and try again.",
+            )
+            return render(request, "home/register.html", {
+                "form": form,
+                "next": request.POST.get("next", request.GET.get("next", "")),
+            })
+        next_url = request.POST.get("next", "")
+        otp_url = reverse("verify_otp") + f"?uid={user.pk}"
+        if next_url:
+            otp_url += "&" + urlencode({"next": next_url})
+        return redirect(otp_url)
+    return render(request, "home/register.html", {
+        "form": form,
+        "next": request.POST.get("next", request.GET.get("next", "")),
+    })
+
+
+@never_cache
+def verify_otp(request):
+    from django.contrib.auth import get_user_model
+    from django.utils import timezone
+    User = get_user_model()
+
+    uid = request.GET.get("uid") or request.POST.get("uid", "")
+    next_url = request.GET.get("next") or request.POST.get("next", "")
+    user = None
+    try:
+        user = User.objects.get(pk=uid, is_active=False, is_staff=False)
+    except (User.DoesNotExist, ValueError):
+        messages.error(request, "Account not found or already verified.")
+        login_url = reverse("login")
+        if next_url:
+            login_url += "?" + urlencode({"next": next_url})
+        return redirect(login_url)
+
+    try:
+        otp_record = user.email_otp
+    except EmailOTP.DoesNotExist:
+        messages.error(request, "No verification code found. Please register again.")
+        return redirect("register")
+
+    # Compute resend countdown seconds for the template
+    resend_wait = max(
+        0,
+        int((otp_record.resend_available_at - timezone.now()).total_seconds()),
+    )
+
+    if request.method == "POST":
+        plain_otp = request.POST.get("otp", "").strip()
+
+        if otp_record.is_locked:
+            messages.error(
+                request,
+                "Too many incorrect attempts. Please request a new code.",
+            )
+            return render(request, "home/verify_otp.html", {
+                "masked_email": _mask_email(user.email),
+                "uid": uid,
+                "locked": True,
+                "resend_wait": 0,
+                "next_url": next_url,
+            })
+
+        if otp_record.is_expired:
+            messages.error(
+                request,
+                "Your verification code has expired. Please request a new one.",
+            )
+            return render(request, "home/verify_otp.html", {
+                "masked_email": _mask_email(user.email),
+                "uid": uid,
+                "locked": False,
+                "resend_wait": 0,
+                "next_url": next_url,
+            })
+
+        if not plain_otp.isdigit() or len(plain_otp) != 6:
+            messages.error(request, "Please enter the 6-digit code from your email.")
+            return render(request, "home/verify_otp.html", {
+                "masked_email": _mask_email(user.email),
+                "uid": uid,
+                "locked": False,
+                "resend_wait": resend_wait,
+                "next_url": next_url,
+            })
+
+        if not otp_record.check_otp(plain_otp):
+            otp_record.attempts += 1
+            otp_record.save(update_fields=["attempts"])
+            remaining = OTP_MAX_ATTEMPTS - otp_record.attempts
+            if remaining <= 0:
+                messages.error(
+                    request,
+                    "Too many incorrect attempts. Please request a new code.",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Incorrect code. {remaining} attempt{'s' if remaining != 1 else ''} remaining.",
+                )
+            return render(request, "home/verify_otp.html", {
+                "masked_email": _mask_email(user.email),
+                "uid": uid,
+                "locked": remaining <= 0,
+                "resend_wait": resend_wait,
+                "next_url": next_url,
+            })
+
+        # OTP correct — activate account and clean up
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+        otp_record.delete()
+        messages.success(
+            request,
+            "Your email has been verified. You can now sign in.",
+        )
+        return redirect("login")
+
+    return render(request, "home/verify_otp.html", {
+        "masked_email": _mask_email(user.email),
+        "uid": uid,
+        "locked": otp_record.is_locked,
+        "resend_wait": resend_wait,
+        "next_url": next_url,
+    })
+
+
+def _mask_email(email):
+    """Return e.g. 'ab***@gmail.com' — never expose the full address."""
+    local, _, domain = email.partition("@")
+    visible = local[:2] if len(local) >= 2 else local[:1]
+    return f"{visible}***@{domain}"
+
+
+def _send_password_reset_otp_email(user, plain_otp):
+    try:
+        send_mail(
+            subject="Your GadgetHub password reset code",
+            message=render_to_string(
+                "home/password_reset_email.txt",
+                {"user": user, "otp": plain_otp, "valid_minutes": 5},
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to send password reset OTP to user %s.", user.pk)
+        return False
+
+
+@never_cache
+def password_reset_request(request):
+    if request.method == "POST":
+        from django.contrib.auth import get_user_model
+
+        email = request.POST.get("email", "").strip()
+        User = get_user_model()
+        user = User.objects.filter(
+            email__iexact=email,
+            is_active=True,
+        ).first()
+        if user:
+            plain_otp = EmailOTP.generate_for_user(user)
+            sent = _send_password_reset_otp_email(user, plain_otp)
+            if sent:
+                return redirect(
+                    reverse("password_reset_verify") + f"?uid={user.pk}"
+                )
+            messages.error(
+                request,
+                "We could not send the reset code. Please try again later.",
+            )
+        else:
+            return redirect("password_reset")
+
     return render(
         request,
-        "home/register.html",
+        "home/password_reset.html",
         {
-            "form": form,
-            "next": request.POST.get("next", request.GET.get("next", "")),
+            "mode": "request",
+            "page_title": "Reset your password",
+            "page_description": (
+                "Enter the email address on your account and we’ll send "
+                "a 6-digit password reset code."
+            ),
         },
     )
+
+
+@never_cache
+def password_reset_verify(request):
+    from django.contrib.auth import get_user_model
+    from django.utils import timezone
+
+    User = get_user_model()
+    uid = request.GET.get("uid") or request.POST.get("uid", "")
+    try:
+        user = User.objects.get(pk=uid, is_active=True)
+    except (User.DoesNotExist, ValueError):
+        messages.error(request, "Account not found or already verified.")
+        return redirect("password_reset")
+
+    try:
+        otp_record = user.email_otp
+    except EmailOTP.DoesNotExist:
+        messages.error(request, "No reset code found. Please request a new one.")
+        return redirect("password_reset")
+
+    resend_wait = max(
+        0,
+        int((otp_record.resend_available_at - timezone.now()).total_seconds()),
+    )
+
+    if request.method == "POST":
+        plain_otp = request.POST.get("otp", "").strip()
+        if otp_record.is_locked:
+            messages.error(
+                request,
+                "Too many incorrect attempts. Please request a new code.",
+            )
+        elif otp_record.is_expired:
+            messages.error(
+                request,
+                "Your reset code has expired. Please request a new one.",
+            )
+        elif not plain_otp.isdigit() or len(plain_otp) != 6:
+            messages.error(request, "Please enter the 6-digit code from your email.")
+        elif not otp_record.check_otp(plain_otp):
+            otp_record.attempts += 1
+            otp_record.save(update_fields=["attempts"])
+            remaining = OTP_MAX_ATTEMPTS - otp_record.attempts
+            if remaining <= 0:
+                messages.error(
+                    request,
+                    "Too many incorrect attempts. Please request a new code.",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Incorrect code. {remaining} attempt{'s' if remaining != 1 else ''} remaining.",
+                )
+        else:
+            request.session["password_reset_user_id"] = user.pk
+            otp_record.delete()
+            return redirect("password_reset_complete")
+
+    return render(
+        request,
+        "home/password_reset.html",
+        {
+            "mode": "verify",
+            "page_title": "Enter reset code",
+            "page_description": "Enter the 6-digit code sent to your email.",
+            "masked_email": _mask_email(user.email),
+            "uid": uid,
+            "resend_wait": resend_wait,
+            "locked": otp_record.is_locked,
+        },
+    )
+
+
+@require_POST
+@never_cache
+def password_reset_resend(request):
+    from django.contrib.auth import get_user_model
+    from django.utils import timezone
+
+    User = get_user_model()
+    uid = request.POST.get("uid", "")
+    try:
+        user = User.objects.get(pk=uid, is_active=True)
+    except (User.DoesNotExist, ValueError):
+        messages.error(request, "Account not found.")
+        return redirect("password_reset")
+
+    try:
+        otp_record = user.email_otp
+    except EmailOTP.DoesNotExist:
+        otp_record = None
+
+    if otp_record and not otp_record.can_resend:
+        wait_seconds = int(
+            (otp_record.resend_available_at - timezone.now()).total_seconds()
+        )
+        messages.warning(
+            request,
+            f"Please wait {wait_seconds} second{'s' if wait_seconds != 1 else ''} before requesting a new code.",
+        )
+        return redirect(reverse("password_reset_verify") + f"?uid={uid}")
+
+    plain_otp = EmailOTP.generate_for_user(user)
+    if not _send_password_reset_otp_email(user, plain_otp):
+        messages.error(request, "We could not send the code. Please try again later.")
+    return redirect(reverse("password_reset_verify") + f"?uid={uid}")
+
+
+@never_cache
+def password_reset_complete(request):
+    user_id = request.session.get("password_reset_user_id")
+    if not user_id:
+        return redirect("password_reset")
+
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=user_id, is_active=True)
+    except User.DoesNotExist:
+        request.session.pop("password_reset_user_id", None)
+        return redirect("password_reset")
+
+    if request.method == "POST":
+        form = FriendlySetPasswordForm(user, request.POST)
+        if form.is_valid():
+            form.save()
+            request.session.pop("password_reset_user_id", None)
+            request.session["password_reset_complete_notice"] = True
+            return redirect("login")
+    else:
+        form = FriendlySetPasswordForm(user)
+
+    return render(
+        request,
+        "home/password_reset.html",
+        {
+            "mode": "confirm",
+            "page_title": "Choose a new password",
+            "page_description": "Enter and confirm your new password.",
+            "form": form,
+        },
+    )
+
+
+@require_POST
+def resend_otp(request):
+    from django.contrib.auth import get_user_model
+    from django.utils import timezone
+    User = get_user_model()
+
+    uid = request.POST.get("uid", "")
+    next_url = request.POST.get("next", "")
+    try:
+        user = User.objects.get(pk=uid, is_active=False, is_staff=False)
+    except (User.DoesNotExist, ValueError):
+        messages.error(request, "Account not found or already verified.")
+        return redirect("login")
+
+    try:
+        otp_record = user.email_otp
+    except EmailOTP.DoesNotExist:
+        otp_record = None
+
+    if otp_record and not otp_record.can_resend:
+        wait_secs = int(
+            (otp_record.resend_available_at - timezone.now()).total_seconds()
+        )
+        messages.warning(
+            request,
+            f"Please wait {wait_secs} second{'s' if wait_secs != 1 else ''} before requesting a new code.",
+        )
+        verify_url = reverse("verify_otp") + f"?uid={uid}"
+        if next_url:
+            verify_url += "&" + urlencode({"next": next_url})
+        return redirect(verify_url)
+
+    plain_otp = EmailOTP.generate_for_user(user)
+    sent = _send_otp_email(user, plain_otp)
+    if sent:
+        messages.success(request, "A new verification code has been sent to your email.")
+    else:
+        messages.error(request, "We could not send the code. Please try again later.")
+    verify_url = reverse("verify_otp") + f"?uid={uid}"
+    if next_url:
+        verify_url += "&" + urlencode({"next": next_url})
+    return redirect(verify_url)
 
 
 @login_required
@@ -181,7 +622,7 @@ def account(request):
         else {"instance": profile, "user": request.user}
     )
     profile_form = profile_form_class(**profile_form_kwargs)
-    password_form = PasswordChangeForm(request.user)
+    password_form = FriendlyPasswordChangeForm(request.user)
     show_password_form = False
     show_profile_details = False
     show_profile_edit = False
@@ -198,7 +639,7 @@ def account(request):
                 return redirect("account")
         elif request.POST.get("form_type") == "password":
             show_password_form = True
-            password_form = PasswordChangeForm(request.user, request.POST)
+            password_form = FriendlyPasswordChangeForm(request.user, request.POST)
             if password_form.is_valid():
                 user = password_form.save()
                 update_session_auth_hash(request, user)

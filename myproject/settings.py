@@ -144,5 +144,17 @@ RAZORPAY_ENABLED = bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-DEFAULT_FROM_EMAIL = "GadgetHub <no-reply@gadgethub.local>"
+_GMAIL_USER = os.environ.get("GMAIL_USER", "").strip()
+_GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+
+if _GMAIL_USER and _GMAIL_APP_PASSWORD:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = "smtp.gmail.com"
+    EMAIL_PORT = 587
+    EMAIL_USE_TLS = True
+    EMAIL_HOST_USER = _GMAIL_USER
+    EMAIL_HOST_PASSWORD = _GMAIL_APP_PASSWORD
+    DEFAULT_FROM_EMAIL = f"GadgetHub <{_GMAIL_USER}>"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+    DEFAULT_FROM_EMAIL = "GadgetHub <no-reply@gadgethub.local>"

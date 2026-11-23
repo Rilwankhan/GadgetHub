@@ -1,12 +1,118 @@
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import PasswordChangeForm, SetPasswordForm, UserCreationForm
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from .models import CustomerProfile
 from .roles import STAFF_GROUP_NAME
+
+
+def friendly_password_error(password, user=None, cleaned_data=None):
+    if not password:
+        return "Enter a password."
+
+    if user is not None or cleaned_data:
+        personal_values = []
+        cleaned_data = cleaned_data or {}
+        for value in (
+            cleaned_data.get("username"),
+            cleaned_data.get("email"),
+            cleaned_data.get("first_name"),
+            cleaned_data.get("last_name"),
+        ):
+            value = str(value or "").strip().lower()
+            if value:
+                personal_values.append(value)
+                if "@" in value:
+                    personal_values.append(value.split("@", 1)[0])
+
+        if user is not None:
+            user_values = (
+                getattr(user, "username", ""),
+                getattr(user, "email", ""),
+                getattr(user, "first_name", ""),
+                getattr(user, "last_name", ""),
+            )
+        else:
+            user_values = ()
+        for value in user_values:
+            value = str(value).strip().lower()
+            if value:
+                personal_values.append(value)
+                if "@" in value:
+                    personal_values.append(value.split("@", 1)[0])
+
+        password_normalized = password.strip().lower()
+        if any(
+            password_normalized == value
+            or (
+                len(value) >= 4
+                and len(password_normalized) >= 4
+                and (value in password_normalized or password_normalized in value)
+            )
+            for value in personal_values
+        ):
+            return "Choose a password that isn't based on your username or email address."
+
+    if password.isdigit():
+        return "Use letters and numbers, not only digits."
+    if len(password) < 8:
+        return "Use at least 8 characters for a strong password."
+    return "Choose a less common and stronger password."
+
+
+class FriendlyPasswordMixin:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in ("password1", "password2", "new_password1", "new_password2"):
+            if field_name in self.fields:
+                self.fields[field_name].help_text = ""
+
+    def add_error(self, field, error):
+        if field not in (
+            "password1",
+            "password2",
+            "new_password1",
+            "new_password2",
+        ):
+            return super().add_error(field, error)
+
+        errors = error.error_list if hasattr(error, "error_list") else [error]
+        friendly_errors = []
+        password = None
+        cleaned_data = getattr(self, "cleaned_data", {})
+        for candidate in ("password1", "password2", "new_password1", "new_password2"):
+            if candidate in cleaned_data:
+                password = cleaned_data[candidate]
+                break
+
+        for item in errors:
+            code = getattr(item, "code", "")
+            message = str(item)
+            if code == "password_mismatch" or "didn't match" in message:
+                friendly_errors.append("Passwords don't match. Enter the same password in both fields.")
+                continue
+            if password is None:
+                password = ""
+            user = getattr(self, "instance", None)
+            if user is None or not hasattr(user, "username"):
+                user = getattr(self, "user", None)
+            friendly_errors.append(
+                friendly_password_error(password, user, cleaned_data)
+            )
+
+        for message in dict.fromkeys(friendly_errors):
+            super().add_error(field, ValidationError(message))
+
+
+class FriendlyPasswordChangeForm(FriendlyPasswordMixin, PasswordChangeForm):
+    pass
+
+
+class FriendlySetPasswordForm(FriendlyPasswordMixin, SetPasswordForm):
+    pass
 
 
 def _clean_employee_id(employee_id, profile=None):
@@ -21,7 +127,7 @@ def _clean_employee_id(employee_id, profile=None):
     return employee_id
 
 
-class CustomerRegistrationForm(UserCreationForm):
+class CustomerRegistrationForm(FriendlyPasswordMixin, UserCreationForm):
     first_name = forms.CharField(max_length=150, label="First name")
     last_name = forms.CharField(max_length=150, label="Last name")
     email = forms.EmailField()
@@ -40,11 +146,21 @@ class CustomerRegistrationForm(UserCreationForm):
         model = get_user_model()
         fields = ("username", "first_name", "last_name", "email")
 
+    def clean_email(self):
+        email = self.cleaned_data["email"]
+        User = get_user_model()
+        if User.objects.filter(email__iexact=email).exists():
+            raise ValidationError(
+                "An account with this email address already exists."
+            )
+        return email
+
     def save(self, commit=True):
         user = super().save(commit=False)
         user.first_name = self.cleaned_data["first_name"]
         user.last_name = self.cleaned_data["last_name"]
         user.email = self.cleaned_data["email"]
+        user.is_active = False
         if commit:
             user.save()
             CustomerProfile.objects.create(
@@ -55,7 +171,7 @@ class CustomerRegistrationForm(UserCreationForm):
         return user
 
 
-class StaffCreationForm(UserCreationForm):
+class StaffCreationForm(FriendlyPasswordMixin, UserCreationForm):
     email = forms.EmailField()
     employee_id = forms.CharField(max_length=50, label="Employee ID")
 

@@ -20,6 +20,7 @@ from django.utils.formats import date_format
 from .models import (
     Category,
     CustomerProfile,
+    EmailOTP,
     Order,
     OrderItem,
     OrderPaymentEvent,
@@ -449,7 +450,7 @@ class StorefrontOrderTests(TestCase):
         tracking_order = self.client.get(reverse("order_tracking")).json()["orders"][0]
         self.assertEqual(tracking_order["cancelled_at"], cancelled_at.isoformat())
 
-    def test_registration_creates_and_logs_in_customer(self):
+    def test_registration_requires_email_otp_verification(self):
         response = self.client.post(
             reverse("register"),
             {
@@ -464,13 +465,30 @@ class StorefrontOrderTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, reverse("account"))
-        self.assertTrue(
-            get_user_model().objects.filter(username="newcustomer").exists()
+        user = get_user_model().objects.get(username="newcustomer")
+        self.assertRedirects(
+            response,
+            reverse("verify_otp") + f"?uid={user.pk}",
         )
-        self.assertTrue(response.wsgi_request.user.is_authenticated)
-        self.assertEqual(response.wsgi_request.user.profile.mobile, "9876543210")
-        self.assertEqual(response.wsgi_request.user.profile.address, "1 New Street")
+        self.assertFalse(user.is_active)
+        self.assertTrue(EmailOTP.objects.filter(user=user).exists())
+        self.assertEqual(user.profile.mobile, "9876543210")
+        self.assertEqual(user.profile.address, "1 New Street")
+
+        otp = EmailOTP.objects.get(user=user)
+        otp_page = self.client.get(reverse("verify_otp"), {"uid": user.pk})
+        self.assertContains(otp_page, "Verify your email")
+
+        otp.otp_hash = EmailOTP._hash("123456")
+        otp.save(update_fields=["otp_hash"])
+        verify = self.client.post(
+            reverse("verify_otp"),
+            {"uid": user.pk, "otp": "123456"},
+        )
+        self.assertRedirects(verify, reverse("login"))
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+        self.assertFalse(EmailOTP.objects.filter(user=user).exists())
 
     def test_registration_continues_to_checkout_when_requested(self):
         response = self.client.post(
@@ -488,8 +506,12 @@ class StorefrontOrderTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, "/?checkout=1")
-        self.assertTrue(response.wsgi_request.user.is_authenticated)
+        user = get_user_model().objects.get(username="checkoutcustomer")
+        self.assertRedirects(
+            response,
+            reverse("verify_otp") + f"?uid={user.pk}&next=%2F%3Fcheckout%3D1",
+        )
+        self.assertFalse(user.is_active)
 
     def test_login_redirects_users_and_admins_to_their_roles(self):
         response = self.client.post(
@@ -700,7 +722,7 @@ class StorefrontOrderTests(TestCase):
         )
         self.assertContains(response, "Your old password was entered incorrectly.")
 
-    def test_forgot_password_sends_a_working_reset_link(self):
+    def test_forgot_password_sends_a_working_reset_otp(self):
         self.user.email = "customer@example.com"
         self.user.save(update_fields=["email"])
 
@@ -711,27 +733,33 @@ class StorefrontOrderTests(TestCase):
             reverse("password_reset"), {"email": self.user.email}
         )
 
-        self.assertRedirects(response, reverse("password_reset_done"))
+        user = get_user_model().objects.get(pk=self.user.pk)
+        otp = EmailOTP.objects.get(user=user)
+        self.assertRedirects(
+            response,
+            reverse("password_reset_verify") + f"?uid={user.pk}",
+        )
         self.assertEqual(len(mail.outbox), 1)
-        match = re.search(
-            r"/accounts/reset/([^/\s]+)/([^/\s]+)", mail.outbox[0].body
+        self.assertIn("6-digit verification code", mail.outbox[0].body)
+
+        otp.otp_hash = EmailOTP._hash("654321")
+        otp.save(update_fields=["otp_hash"])
+        verify_page = self.client.post(
+            reverse("password_reset_verify"),
+            {"uid": user.pk, "otp": "654321"},
         )
-        self.assertIsNotNone(match)
-        reset_url = reverse(
-            "password_reset_confirm",
-            kwargs={"uidb64": match.group(1), "token": match.group(2)},
-        )
-        confirm_page = self.client.get(reset_url, follow=True)
-        self.assertEqual(confirm_page.status_code, 200)
+        self.assertRedirects(verify_page, reverse("password_reset_complete"))
+
+        confirm_page = self.client.get(reverse("password_reset_complete"))
         response = self.client.post(
-            confirm_page.request["PATH_INFO"],
+            reverse("password_reset_complete"),
             {
                 "new_password1": "ResetPassword123!More",
                 "new_password2": "ResetPassword123!More",
             },
         )
 
-        self.assertRedirects(response, reverse("password_reset_complete"))
+        self.assertRedirects(response, reverse("login"))
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("ResetPassword123!More"))
 
@@ -1420,6 +1448,8 @@ class StaffOperationsTests(TestCase):
         self.assertContains(detail, "1 Staff Street")
         self.assertContains(detail, "Back to staff dashboard")
         self.assertContains(detail, reverse("home"))
+        self.assertContains(detail, '<details class="staff-order-history">')
+        self.assertNotContains(detail, '<details class="staff-order-history" open>')
         self.assertEqual(
             detail.content.decode().count('class="staff-currency"'),
             3,
@@ -1925,6 +1955,8 @@ class GadgetHubAdminTests(TestCase):
         dashboard = self.client.get(reverse("admin:index"))
         self.assertContains(dashboard, "Staff actions")
         self.assertContains(dashboard, reverse("admin:staff_actions"))
+        self.assertContains(dashboard, 'class="gh-quick-icon gh-icon-purple"')
+        self.assertContains(dashboard, 'xmlns="http://www.w3.org/2000/svg"')
         self.assertNotContains(dashboard, "Dashboard Staff")
 
         response = self.client.get(reverse("admin:staff_actions"))
@@ -1935,6 +1967,9 @@ class GadgetHubAdminTests(TestCase):
         self.assertContains(response, "Pending → Confirmed")
         self.assertContains(response, "Unpaid → Paid")
         self.assertContains(response, 'class="gh-audit-amount"')
+        self.assertContains(response, 'class="gh-activity-mark is-add"')
+        self.assertContains(response, 'class="gh-audit-currency"')
+        self.assertContains(response, "₹")
         self.assertContains(response, "99.00")
         self.assertNotContains(response, f"Order #{cancelled_order.pk}")
 

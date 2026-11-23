@@ -6,12 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#111827">
     <title>Order #{{ row.order.pk }} | Staff Dashboard</title>
-    <link rel="stylesheet" href="{% static 'home/staff.css' %}?v=20261123-4">
+    <link rel="stylesheet" href="{% static 'home/staff.css' %}?v=20261123-mobile">
 </head>
 <body class="staff-dashboard">
     <header class="staff-header">
         <a class="staff-brand" href="{% url 'staff_dashboard' %}">Gadget<span>Hub</span></a>
-        <div class="staff-header-user">
+        <button class="staff-menu-toggle" type="button" aria-label="Open staff navigation" aria-expanded="false" aria-controls="staff-header-navigation">
+            <span></span><span></span><span></span>
+        </button>
+        <div class="staff-header-user" id="staff-header-navigation">
             <a class="staff-home-link" href="{% url 'account' %}">Personal details</a>
             <a class="staff-home-link" href="{% url 'home' %}">Back to home</a>
             <span>{{ user.get_full_name|default:user.username }}</span>
@@ -115,7 +118,7 @@
                     {% endif %}
                 </div>
 
-                <details class="staff-order-history" open>
+                <details class="staff-order-history">
                     <summary>Order and payment activity</summary>
                     {% for event in order.tracking_events.all %}
                         <p>
@@ -139,4 +142,5 @@
         {% endwith %}
     </main>
 </body>
+<script src="{% static 'home/header.js' %}?v=20261123-navbar-fix"></script>
 </html>

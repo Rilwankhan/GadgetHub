@@ -95,7 +95,7 @@
                 <div class="gh-quick-grid">
                     <a href="{% url 'admin:order_updates' %}"><span class="gh-quick-icon gh-icon-orange">↗</span><span><strong>{{ store_summary.pending_order_count }} pending COD orders</strong><small>Confirm, ship and deliver COD orders</small></span><b>→</b></a>
                     <a href="{% url 'admin:home_paymenttransaction_changelist' %}?status__exact=failed"><span class="gh-quick-icon gh-icon-red">!</span><span><strong>{{ store_summary.failed_payment_count }} failed payments</strong><small>Review Razorpay transaction attempts</small></span><b>→</b></a>
-                    <a href="{% url 'admin:staff_actions' %}"><span class="gh-quick-icon gh-icon-purple" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="9" cy="8" r="3"></circle><path d="M3.5 19a5.5 5.5 0 0 1 11 0"></path><path d="M16 5.2a3 3 0 0 1 0 5.6"></path><path d="M17 14.5a5 5 0 0 1 3.5 4.5"></path></svg></span><span><strong>Staff actions</strong><small>Review order and COD payment updates</small></span><b>→</b></a>
+                    <a href="{% url 'admin:staff_actions' %}"><span class="gh-quick-icon gh-icon-purple" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" focusable="false"><circle cx="9" cy="8" r="3"></circle><path d="M3.5 19a5.5 5.5 0 0 1 11 0"></path><path d="M16 5.2a3 3 0 0 1 0 5.6"></path><path d="M17 14.5a5 5 0 0 1 3.5 4.5"></path></svg></span><span><strong>Staff actions</strong><small>Review order and COD payment updates</small></span><b>→</b></a>
                 </div>
             </article>
         </section>

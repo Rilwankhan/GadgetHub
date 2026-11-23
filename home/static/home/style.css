@@ -132,7 +132,7 @@ img {
 
 .logo-word {
     font-family: "Manrope", sans-serif;
-    font-size: 17px;
+    font-size: 20px;
     font-weight: 800;
     letter-spacing: -0.07em;
 }
@@ -167,7 +167,7 @@ img {
 .account-links a,
 .account-links button {
     color: var(--ink-soft);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     text-decoration: none;
     transition: color 0.18s ease;
@@ -1981,7 +1981,7 @@ p {
 .account-card > p {
     margin: 8px 0 22px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.7;
 }
 
@@ -2287,6 +2287,17 @@ p {
 }
 
 @media (max-width: 720px) {
+    .auth-card .otp-inputs {
+        gap: 6px;
+    }
+
+    .auth-card form .otp-inputs input.otp-input {
+        height: 48px;
+        min-height: 48px;
+        border-radius: 10px;
+        font-size: 18px;
+    }
+
     .announcement-bar {
         font-size: 9px;
     }
@@ -2299,7 +2310,7 @@ p {
     }
 
     .logo-word {
-        font-size: 15px;
+        font-size: 18px;
     }
 
     .header-actions {
@@ -2350,7 +2361,7 @@ p {
         display: block;
         padding: 12px 8px;
         border-bottom: 1px solid #eff1ef;
-        font-size: 12px;
+        font-size: 13px;
     }
 
     .nav-links .mobile-register-link {
@@ -2764,6 +2775,27 @@ p {
     color: #fff;
 }
 
+.auth-aside-login {
+    background:
+        linear-gradient(180deg, rgba(10, 20, 44, .18) 0%, rgba(10, 20, 44, .72) 100%),
+        url("../image/Login_page.png") center / cover no-repeat,
+        var(--ink);
+}
+
+.auth-aside-register {
+    background:
+        linear-gradient(180deg, rgba(10, 20, 44, .18) 0%, rgba(10, 20, 44, .72) 100%),
+        url("../image/Create_account.png") center / cover no-repeat,
+        var(--ink);
+}
+
+.auth-aside-reset {
+    background:
+        linear-gradient(180deg, rgba(10, 20, 44, .18) 0%, rgba(10, 20, 44, .72) 100%),
+        url("../image/Reset_page.png") center / cover no-repeat,
+        var(--ink);
+}
+
 .auth-aside::after {
     position: absolute;
     right: -105px;
@@ -2779,11 +2811,15 @@ p {
     position: relative;
     z-index: 1;
     align-self: flex-start;
-    color: #fff;
+    color: var(--ink);
 }
 
 .auth-logo .logo-word span {
-    color: #d7e8c1;
+    color: var(--blue);
+}
+
+.auth-logo .logo-word {
+    font-size: 21px;
 }
 
 .auth-aside-copy {
@@ -2815,7 +2851,7 @@ p {
     max-width: 335px;
     margin: 0;
     color: #bdc7cb;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.8;
 }
 
@@ -2875,7 +2911,7 @@ p {
 .auth-card h2 {
     margin: 34px 0 7px;
     font-family: "Manrope", sans-serif;
-    font-size: 25px;
+    font-size: 27px;
     letter-spacing: -0.06em;
 }
 
@@ -2905,6 +2941,67 @@ p {
 .auth-card .auth-forgot-link {
     margin: -5px 0 14px;
     text-align: right;
+}
+
+.account-card form .errorlist {
+    margin: 8px 0 10px;
+    padding: 9px 11px;
+    border: 1px solid #f0c4c2;
+    border-radius: 9px;
+    background: #fff5f4;
+    color: #9b3d35;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.55;
+    list-style: none;
+}
+
+.account-card form .errorlist li {
+    margin: 0;
+}
+
+.auth-card .otp-fieldset {
+    margin: 14px 0 0;
+    padding: 0;
+    border: 0;
+}
+
+.auth-card .otp-fieldset legend {
+    width: 100%;
+    margin-bottom: 9px;
+    color: var(--ink-soft);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.auth-card .otp-inputs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(42px, 1fr));
+    gap: 9px;
+}
+
+.auth-card form .otp-inputs input.otp-input {
+    width: 100%;
+    min-width: 0;
+    height: 54px;
+    min-height: 54px;
+    padding: 0;
+    border: 1.5px solid #dfe3ec;
+    border-radius: 12px;
+    background: #fff;
+    color: #172033;
+    font-family: "Manrope", sans-serif;
+    font-size: 21px;
+    font-weight: 800;
+    text-align: center;
+    caret-color: #4465e9;
+    transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.auth-card form .otp-inputs input.otp-input:focus {
+    border-color: #4465e9;
+    box-shadow: 0 0 0 4px rgba(68, 101, 233, .12);
+    transform: translateY(-1px);
 }
 
 .auth-forgot-link a {
@@ -2958,7 +3055,7 @@ p {
     background: transparent;
     color: var(--ink-soft);
     cursor: pointer;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
     text-decoration: none;
 }
@@ -2970,6 +3067,10 @@ p {
 
 .dashboard-nav form {
     margin: 0;
+}
+
+.dashboard-menu-toggle {
+    display: none;
 }
 
 .dashboard-shell {
@@ -3929,7 +4030,6 @@ p {
     font-size: 12px;
     font-weight: 800;
 }
-}
 
 .empty-orders h3 {
     margin: 9px 0 5px;
@@ -3951,6 +4051,10 @@ p {
 }
 
 @media (max-width: 720px) {
+    .auth-logo .logo-word {
+        font-size: 19px;
+    }
+
     .auth-page {
         display: block;
         padding: 14px;
@@ -3983,7 +4087,7 @@ p {
     }
 
     .auth-aside-copy > p:last-child {
-        font-size: 9px;
+        font-size: 11px;
     }
 
     .auth-aside-note {
@@ -3996,7 +4100,7 @@ p {
 
     .auth-card h2 {
         margin-top: 19px;
-        font-size: 22px;
+        font-size: 24px;
     }
 
     .customer-dashboard,
@@ -4016,20 +4120,68 @@ p {
         padding: 12px 0;
     }
 
+    .dashboard-menu-toggle {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        margin-left: auto;
+        place-items: center;
+        align-content: center;
+        gap: 4px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #fff;
+        cursor: pointer;
+    }
+
+    .dashboard-menu-toggle span {
+        display: block;
+        width: 18px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--ink);
+    }
+
+    .dashboard-header.menu-open .dashboard-menu-toggle span:nth-child(2) {
+        opacity: 0;
+    }
+
+    .dashboard-header.menu-open .dashboard-menu-toggle span:first-child {
+        transform: translateY(6px) rotate(45deg);
+    }
+
+    .dashboard-header.menu-open .dashboard-menu-toggle span:last-child {
+        transform: translateY(-6px) rotate(-45deg);
+    }
+
     .dashboard-nav {
+        display: none;
         flex: 1 1 100%;
-        flex-wrap: wrap;
-        justify-content: flex-start;
-        gap: 8px 16px;
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: 6px 0 2px;
+        border-top: 1px solid var(--line);
+    }
+
+    .dashboard-header.menu-open .dashboard-nav {
+        display: flex;
     }
 
     .dashboard-nav a,
     .dashboard-nav button {
-        font-size: 10px;
+        width: 100%;
+        min-height: 42px;
+        padding: 10px 8px;
+        border-bottom: 1px solid #eff1ef;
+        font-size: 12px;
+        text-align: left;
     }
 
     .dashboard-nav form {
-        margin-left: auto;
+        width: 100%;
+        margin: 0;
     }
 
     .dashboard-welcome {
@@ -4085,13 +4237,9 @@ p {
 }
 
 @media (max-width: 420px) {
-    .dashboard-nav {
-        gap: 8px 12px;
-    }
-
     .dashboard-nav a,
     .dashboard-nav button {
-        font-size: 9px;
+        font-size: 11px;
     }
 
     .account-order-bottom {

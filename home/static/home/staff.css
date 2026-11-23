@@ -19,6 +19,7 @@ a { color: inherit; }
     color: #fff;
 }
 .staff-brand { color: #fff; font-size: 20px; font-weight: 800; text-decoration: none; }
+.staff-menu-toggle { display: none; }
 .staff-brand span { color: #a99dff; }
 .staff-header-user { display: flex; align-items: center; gap: 20px; font-size: 13px; }
 .staff-header-user form { margin: 0; }
@@ -84,8 +85,51 @@ a { color: inherit; }
 .staff-pagination a { color: #5344ca; font-weight: 700; }
 
 @media (max-width: 760px) {
-    .staff-header { align-items: flex-start; }
-    .staff-header-user { align-items: flex-end; flex-direction: column; gap: 8px; }
+    .staff-header { position: relative; align-items: center; flex-wrap: wrap; }
+    .staff-brand { font-size: 18px; }
+    .staff-menu-toggle {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        margin-left: auto;
+        place-items: center;
+        align-content: center;
+        gap: 4px;
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 10px;
+        background: rgba(255,255,255,.06);
+        cursor: pointer;
+    }
+    .staff-menu-toggle span {
+        display: block;
+        width: 18px;
+        height: 2px;
+        border-radius: 2px;
+        background: #fff;
+    }
+    .staff-header.menu-open .staff-menu-toggle span:nth-child(2) { opacity: 0; }
+    .staff-header.menu-open .staff-menu-toggle span:first-child { transform: translateY(6px) rotate(45deg); }
+    .staff-header.menu-open .staff-menu-toggle span:last-child { transform: translateY(-6px) rotate(-45deg); }
+    .staff-header-user {
+        display: none;
+        flex: 1 1 100%;
+        width: 100%;
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255,255,255,.12);
+    }
+    .staff-header.menu-open .staff-header-user { display: flex; }
+    .staff-header-user .staff-home-link {
+        min-height: 42px;
+        padding: 12px 8px;
+        border-bottom: 1px solid rgba(255,255,255,.09);
+    }
+    .staff-header-user > span { display: none; }
+    .staff-header-user form { width: 100%; }
+    .staff-header-user button { width: 100%; min-height: 42px; margin-top: 8px; }
     .staff-heading { align-items: flex-start; flex-direction: column; }
     .staff-order-details { grid-template-columns: 1fr; gap: 16px; }
     .staff-order-actions form { width: 100%; }

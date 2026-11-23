@@ -649,9 +649,14 @@ html[data-theme="dark"] #content .gh-metric-card-primary .gh-metric-icon { color
 .gh-audit-products span { padding:5px 8px; border:1px solid var(--gh-border); border-radius:7px; color:var(--gh-ink); font-size:10px; }
 .gh-audit-pagination { display:flex; justify-content:center; align-items:center; gap:18px; padding:18px 0 10px; border-top:1px solid var(--gh-border); color:var(--gh-muted); font-size:11px; }
 .gh-audit-pagination a { color:var(--gh-primary); font-weight:700; text-decoration:none; }
-.gh-activity-mark svg { display:block; width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
-.gh-audit-amount { display:inline-flex; align-items:center; gap:2px; white-space:nowrap; }
-.gh-audit-amount svg { display:block; width:12px; height:13px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.gh-activity-mark svg { display:block !important; width:17px !important; height:17px !important; flex:0 0 17px; overflow:visible; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.gh-audit-amount { display:inline-flex; align-items:center; gap:3px; white-space:nowrap; color:var(--gh-muted); }
+.gh-audit-currency { color:var(--gh-muted); font-family:"DM Sans",Arial,sans-serif; font-size:12px; font-weight:700; line-height:1; }
+.gh-quick-grid .gh-quick-icon svg { display:block !important; width:18px !important; height:18px !important; flex:0 0 18px; overflow:visible; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+html[data-theme="dark"] #content .gh-activity-mark.is-add { background:#1c3b37 !important; color:#6dd8ad !important; }
+html[data-theme="dark"] #content .gh-activity-mark.is-add svg { stroke:#6dd8ad !important; }
+html[data-theme="dark"] #content .gh-audit-amount svg { stroke:#b1bdd0; }
+html[data-theme="dark"] #content .gh-audit-amount { color:var(--gh-muted) !important; }
 @media (max-width:700px) {
     .gh-audit-heading { align-items:flex-start; flex-direction:column; }
     .gh-audit-title { flex-direction:column; gap:5px; }

@@ -94,3 +94,68 @@ document.querySelectorAll("[data-personal-details-toggle]").forEach(toggle => {
         summary.hidden = false;
     });
 });
+
+document.querySelectorAll("[data-otp-form]").forEach(form => {
+    const inputs = Array.from(form.querySelectorAll("[data-otp-input]"));
+    const otpValue = form.querySelector("[data-otp-value]");
+
+    if (!inputs.length || !otpValue) {
+        return;
+    }
+
+    const syncOtp = () => {
+        otpValue.value = inputs.map(input => input.value).join("");
+    };
+
+    inputs.forEach((input, index) => {
+        input.addEventListener("input", () => {
+            input.value = input.value.replace(/\D/g, "").slice(-1);
+            syncOtp();
+            if (input.value && index < inputs.length - 1) {
+                inputs[index + 1].focus();
+                inputs[index + 1].select();
+            }
+        });
+
+        input.addEventListener("keydown", event => {
+            if (event.key === "Backspace" && !input.value && index > 0) {
+                inputs[index - 1].focus();
+                inputs[index - 1].select();
+            }
+            if (event.key === "ArrowLeft" && index > 0) {
+                event.preventDefault();
+                inputs[index - 1].focus();
+            }
+            if (event.key === "ArrowRight" && index < inputs.length - 1) {
+                event.preventDefault();
+                inputs[index + 1].focus();
+            }
+        });
+
+        input.addEventListener("paste", event => {
+            event.preventDefault();
+            const digits = event.clipboardData
+                .getData("text")
+                .replace(/\D/g, "")
+                .slice(0, inputs.length - index);
+
+            digits.split("").forEach((digit, offset) => {
+                inputs[index + offset].value = digit;
+            });
+            syncOtp();
+
+            const nextIndex = Math.min(index + digits.length, inputs.length - 1);
+            inputs[nextIndex].focus();
+        });
+    });
+
+    form.addEventListener("submit", event => {
+        syncOtp();
+        if (!/^\d{6}$/.test(otpValue.value)) {
+            event.preventDefault();
+            inputs.find(input => !input.value)?.focus();
+        }
+    });
+
+    inputs[0].focus();
+});

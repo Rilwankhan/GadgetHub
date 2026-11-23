@@ -1,5 +1,4 @@
 from django.contrib.auth.views import LogoutView
-from django.contrib.auth import views as auth_views
 from django.urls import path
 
 from . import views
@@ -10,56 +9,28 @@ urlpatterns = [
     path("accounts/login/", views.SharedLoginView.as_view(), name="login"),
     path(
         "accounts/password-reset/",
-        auth_views.PasswordResetView.as_view(
-            template_name="home/password_reset.html",
-            email_template_name="home/password_reset_email.txt",
-            subject_template_name="home/password_reset_subject.txt",
-            extra_context={
-                "mode": "request",
-                "page_title": "Reset your password",
-                "page_description": "Enter the email address on your account and we’ll send password reset instructions.",
-            },
-        ),
+        views.password_reset_request,
         name="password_reset",
     ),
     path(
-        "accounts/password-reset/done/",
-        auth_views.PasswordResetDoneView.as_view(
-            template_name="home/password_reset.html",
-            extra_context={
-                "mode": "sent",
-                "page_title": "Check your email",
-                "page_description": "If an active account uses that email, password reset instructions have been sent.",
-            },
-        ),
-        name="password_reset_done",
+        "accounts/password-reset/verify/",
+        views.password_reset_verify,
+        name="password_reset_verify",
     ),
     path(
-        "accounts/reset/<uidb64>/<token>/",
-        auth_views.PasswordResetConfirmView.as_view(
-            template_name="home/password_reset.html",
-            extra_context={
-                "mode": "confirm",
-                "page_title": "Choose a new password",
-                "page_description": "Enter and confirm your new password.",
-            },
-        ),
-        name="password_reset_confirm",
+        "accounts/password-reset/resend/",
+        views.password_reset_resend,
+        name="password_reset_resend",
     ),
     path(
-        "accounts/reset/done/",
-        auth_views.PasswordResetCompleteView.as_view(
-            template_name="home/password_reset.html",
-            extra_context={
-                "mode": "complete",
-                "page_title": "Password updated",
-                "page_description": "Your password has been changed. Sign in with your new password.",
-            },
-        ),
+        "accounts/password-reset/complete/",
+        views.password_reset_complete,
         name="password_reset_complete",
     ),
     path("accounts/logout/", LogoutView.as_view(), name="logout"),
     path("accounts/register/", views.register, name="register"),
+    path("accounts/verify-otp/", views.verify_otp, name="verify_otp"),
+    path("accounts/resend-otp/", views.resend_otp, name="resend_otp"),
     path("account/", views.account, name="account"),
     path("staff/", views.staff_dashboard, name="staff_dashboard"),
     path(

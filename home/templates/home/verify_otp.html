@@ -1,0 +1,79 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#17212b">
+    <title>Verify your email | GadgetHub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261123-type">
+</head>
+<body class="account-page auth-page">
+    <div class="auth-shell">
+        <aside class="auth-aside">
+            <a href="{% url 'home' %}" class="logo auth-logo">
+                <span class="logo-word">Gadget<span>Hub</span></span>
+            </a>
+            <div class="auth-aside-copy">
+                <p class="eyebrow">ALMOST THERE</p>
+                <h1>Enter the code that<br>opens your <span>account.</span></h1>
+                <p>We sent a 6-digit verification code to your email.</p>
+            </div>
+            <div class="auth-aside-note">Thoughtful tech for everyday life.</div>
+            <div class="auth-orbit auth-orbit-one"></div>
+            <div class="auth-orbit auth-orbit-two"></div>
+        </aside>
+        <main class="account-card auth-card">
+            <a href="{% url 'login' %}" class="auth-back-link">← Back to sign in</a>
+            <h2>Verify your email</h2>
+            <p>Enter the 6-digit code sent to <strong>{{ masked_email }}</strong>.</p>
+
+            {% if messages %}
+                {% for message in messages %}
+                    <p class="account-message {% if message.tags == 'error' or message.tags == 'warning' %}error{% endif %}">{{ message }}</p>
+                {% endfor %}
+            {% endif %}
+
+            {% if not locked %}
+            <form method="post" data-otp-form>
+                {% csrf_token %}
+                <input type="hidden" name="uid" value="{{ uid }}">
+                {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+                <input type="hidden" name="otp" data-otp-value>
+                <fieldset class="otp-fieldset">
+                    <legend>Verification code</legend>
+                    <div class="otp-inputs" role="group" aria-label="6-digit verification code">
+                        {% for position in "123456" %}
+                        <input
+                            class="otp-input"
+                            type="text"
+                            inputmode="numeric"
+                            pattern="[0-9]"
+                            maxlength="1"
+                            aria-label="Digit {{ position }}"
+                            {% if forloop.first %}autocomplete="one-time-code"{% else %}autocomplete="off"{% endif %}
+                            data-otp-input
+                        >
+                        {% endfor %}
+                    </div>
+                </fieldset>
+                <button type="submit" class="checkout-button">Verify email <span aria-hidden="true">→</span></button>
+            </form>
+            {% endif %}
+
+            <form method="post" action="{% url 'resend_otp' %}" style="margin-top:18px;">
+                {% csrf_token %}
+                <input type="hidden" name="uid" value="{{ uid }}">
+                {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+                <button type="submit" class="checkout-button"{% if resend_wait > 0 %} disabled{% endif %} style="width:100%; justify-content:space-between; padding:0 17px;">
+                    {% if resend_wait > 0 %}Resend available in {{ resend_wait }}s{% else %}Resend verification code{% endif %} <span aria-hidden="true">→</span>
+                </button>
+            </form>
+        </main>
+    </div>
+    <script src="{% static 'home/auth.js' %}?v=20261123-otp"></script>
+</body>
+</html>

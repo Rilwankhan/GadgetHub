@@ -127,7 +127,9 @@ class GadgetHubAdminSite(admin.AdminSite):
             PaymentTransaction.objects.all()
         )
         store_summary = {
-            "user_count": get_user_model().objects.count(),
+            "user_count": get_user_model().objects.filter(
+                is_active=True, is_staff=False, is_superuser=False
+            ).count(),
             "order_count": dashboard_orders.count(),
             "pending_order_count": dashboard_orders.filter(
                 status=Order.Status.PENDING
@@ -504,6 +506,16 @@ class GadgetHubUserAdmin(UserAdmin):
     ordering = ["-date_joined"]
     readonly_fields = ["last_login", "date_joined"]
     inlines = [CustomerProfileInline]
+
+    def get_queryset(self, request):
+        # Exclude unverified customer accounts (is_active=False, not staff).
+        # Staff and superuser accounts are always shown regardless of is_active.
+        qs = super().get_queryset(request)
+        return qs.exclude(
+            is_active=False,
+            is_staff=False,
+            is_superuser=False,
+        )
 
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ["name", "product_count"]

@@ -23,7 +23,7 @@
             <article class="gh-audit-entry">
                 <span class="gh-activity-mark {% if activity.activity_type == 'cod_payment' %}is-add{% endif %}" aria-hidden="true">
                     {% if activity.activity_type == "cod_payment" %}
-                        <svg viewBox="0 0 24 24" focusable="false"><path d="M6 5h12M6 9h12M9 5v8m0-8h2.5a3.5 3.5 0 0 1 0 7H9l7 7"></path></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" focusable="false"><path d="M6 5h12M6 9h12M9 5v8m0-8h2.5a3.5 3.5 0 0 1 0 7H9l7 7"></path></svg>
                     {% else %}
                         ↗
                     {% endif %}
@@ -42,7 +42,7 @@
                     <small>
                         Updated by {{ activity.actor_name }} · {{ activity.order.full_name }} ·
                         <span class="gh-audit-amount" aria-label="Indian rupees {{ activity.order.total|floatformat:2 }}">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h12M6 9h12M9 5v8m0-8h2.5a3.5 3.5 0 0 1 0 7H9l7 7"></path></svg>
+                            <span class="gh-audit-currency" aria-hidden="true">₹</span>
                             {{ activity.order.total|floatformat:2 }}
                         </span>
                     </small>

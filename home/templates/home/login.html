@@ -9,11 +9,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261119-3">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261123-type">
 </head>
 <body class="account-page auth-page">
     <div class="auth-shell">
-        <aside class="auth-aside">
+        <aside class="auth-aside auth-aside-login">
             <a href="{% url 'home' %}" class="logo auth-logo">
                 <span class="logo-word">Gadget<span>Hub</span></span>
             </a>
@@ -30,6 +30,11 @@
             <a href="{% url 'home' %}" class="auth-back-link">← Back to GadgetHub</a>
             <h2>Sign in to your account</h2>
             <p>Good to have you back. Let’s get you connected.</p>
+            {% if messages %}
+                {% for message in messages %}
+                    {% ifchanged message %}<p class="account-message {{ message.tags }}">{{ message }}</p>{% endifchanged %}
+                {% endfor %}
+            {% endif %}
             <form method="post">
                 {% csrf_token %}
                 {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}

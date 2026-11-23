@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261119-3">
+    <link rel="stylesheet" href="{% static 'home/style.css' %}?v=20261123-mobile">
 </head>
 <body class="account-page {% if is_employee_profile %}admin-dashboard{% else %}customer-dashboard{% endif %}">
     <header class="dashboard-header">
@@ -17,7 +17,10 @@
             <a href="{% url 'home' %}" class="logo">
                 <span class="logo-word">Gadget<span>Hub</span></span>
             </a>
-            <nav class="dashboard-nav" aria-label="Account navigation">
+            <button class="dashboard-menu-toggle" type="button" aria-label="Open account navigation" aria-expanded="false" aria-controls="account-navigation">
+                <span></span><span></span><span></span>
+            </button>
+            <nav class="dashboard-nav" id="account-navigation" aria-label="Account navigation">
                 <a href="{% url 'home' %}">Continue shopping</a>
                 {% if is_admin %}<a href="{% url 'admin:index' %}">Admin dashboard</a>{% elif is_staff_profile %}<a href="{% url 'staff_dashboard' %}">Staff dashboard</a>{% endif %}
                 <form method="post" action="{% url 'logout' %}">
@@ -48,7 +51,7 @@
         </section>
 
         {% for message in messages %}
-            <p class="account-message {{ message.tags }}">{{ message }}</p>
+            {% ifchanged message %}<p class="account-message {{ message.tags }}">{{ message }}</p>{% endifchanged %}
         {% endfor %}
 
         <div class="dashboard-grid">
@@ -371,6 +374,7 @@
         </section>
         {% endif %}
     </main>
+    <script src="{% static 'home/header.js' %}?v=20261123-navbar-fix"></script>
     <script src="{% static 'home/auth.js' %}?v=20261118-1"></script>
     <script src="{% static 'home/tracking.js' %}?v=20261119-1"></script>
 </body>
